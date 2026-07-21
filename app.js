@@ -133,10 +133,51 @@
     remarks.sort((a, b) => a.slide - b.slide);
     for (const r of remarks) {
       const tr = t.insertRow();
-      const n = tr.insertCell(); n.className = "n"; n.textContent = r.slide;
+      tr.className = "remark";
+      const n = tr.insertCell(); n.className = "n";
+      const chk = document.createElement("input");
+      chk.type = "checkbox"; chk.className = "chk";
+      chk.title = "Пометить как исправленное";
+      const num = document.createElement("span"); num.textContent = r.slide;
+      n.append(chk, num);
       tr.insertCell().textContent = r.action;
       tr.insertCell().textContent = r.comment || "";
+      chk.addEventListener("change", () => { if (chk.checked) resolveRow(tr); });
     }
     return t;
+  }
+
+  // Удалить строку замечания с возможностью отмены через snackbar.
+  function resolveRow(tr) {
+    const table = tr.parentNode;
+    const anchor = tr.nextSibling;                 // куда вернуть при отмене
+    table.removeChild(tr);
+    showSnack("Комментарий удалён", () => {
+      const chk = tr.querySelector(".chk"); if (chk) chk.checked = false;
+      if (anchor && anchor.parentNode === table) table.insertBefore(tr, anchor);
+      else table.appendChild(tr);
+    });
+  }
+
+  // ---- snackbar: правый нижний угол, стек максимум из трёх, автоскрытие 2 с ----
+  const snacks = document.getElementById("snacks");
+  function showSnack(message, onUndo) {
+    while (snacks.children.length >= 3) hideSnack(snacks.firstElementChild, true);
+    const el = document.createElement("div"); el.className = "snack";
+    const span = document.createElement("span"); span.textContent = message;
+    const btn = document.createElement("button"); btn.type = "button"; btn.textContent = "Отменить";
+    el.append(span, btn);
+    snacks.appendChild(el);
+    el._timer = setTimeout(() => hideSnack(el), 2000);
+    btn.addEventListener("click", () => { hideSnack(el, true); if (onUndo) onUndo(); });
+  }
+  function hideSnack(el, immediate) {
+    if (!el || el._removing) return;
+    el._removing = true;
+    clearTimeout(el._timer);
+    if (immediate) { el.remove(); return; }
+    el.classList.add("out");
+    el.addEventListener("animationend", () => el.remove(), { once: true });
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 400);   // подстраховка
   }
 })();

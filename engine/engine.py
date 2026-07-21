@@ -226,7 +226,9 @@ def _fits(sp, tier):
         lines += max(1, -(-n // max(1, int(cx/char_w))))
     return lines * line_h <= cy * 1.05
 
-def _content_rect(sp, tier):
+def _content_rect(sp, tier, hfudge=1.3):
+    """hfudge=1.3 — консервативно (для расстановки, разводим с запасом);
+    hfudge≈1.02 — реалистично (для честного флажка об остаточном наезде)."""
     b = _box(sp)
     if b is None: return None
     x, y, cx, cy = b
@@ -238,7 +240,7 @@ def _content_rect(sp, tier):
         ln = max(1, -(-int(n*char_w) // usable))
         lines += ln
         maxw = max(maxw, usable if ln > 1 else int(n*char_w))
-    h = int(lines*line_h*1.3) + 91425
+    h = int(lines*line_h*hfudge) + 91425
     bp = sp.find(f"{q('p:txBody')}/{q('a:bodyPr')}")
     anchor = bp.get("anchor") if bp is not None else "t"
     ry = y + cy - h if anchor == "b" and h < cy else y
@@ -250,6 +252,22 @@ def _hit(a, b, pad=40000):
 
 def _in_slide(r):
     return r[1]+r[3] <= H-20000 and r[0]+r[2] <= W-20000
+
+MIN_PT = 900   # нижний предел кегля при подгонке (9pt)
+
+def _cur_pt(run_tiers):
+    return max(int(rpr.get("sz") or 1400) for rpr, _ in run_tiers)
+
+def _set_pt(run_tiers, pt):
+    for rpr, _ in run_tiers:
+        rpr.set("sz", str(pt))
+
+def _shrink_to_selffit(sp, run_tiers):
+    """Уменьшать кегль, пока текст не влезет в СВОЙ бокс (не вылезет вниз на соседа)."""
+    pt = _cur_pt(run_tiers)
+    while pt > MIN_PT and not _fits(sp, pt):
+        pt = max(MIN_PT, int(pt * 0.92))
+        _set_pt(run_tiers, pt)
 
 def _try_lift(sp, cands, others):
     for t in cands:
@@ -353,7 +371,8 @@ def layout_solver(kids, tiers_map):
             names = " ".join(c.get("name", "") for c in el.iter(q("p:cNvPr")))
             obstacles.append((b, "codecard" in names))
     texts = sorted(tiers_map.keys(), key=lambda s: (_box(s) or [0, 0])[1])
-    placed = []
+    placed = []          # (sp, run_tiers) — для финального де-оверлапа
+    placed_rects = []    # выбранные прямоугольники — чтобы следующие блоки их избегали
     for sp in texts:
         run_tiers = tiers_map[sp]
         dom = max(t for _, t in run_tiers)
@@ -361,11 +380,11 @@ def layout_solver(kids, tiers_map):
         cands = [t for t in TIERS if t <= best]
         bx = _box(sp)
         others = [o for o, solid in obstacles if solid or bx is None or not _hit(bx, o, 0)]
-        others += [r for r, _, _ in placed]
+        others += placed_rects
         chosen, rect = None, None
         for t in cands:
             r = _content_rect(sp, t)
-            if r and _in_slide(r) and (t <= dom or _fits(sp, t)) and not any(_hit(r, o) for o in others):
+            if r and _in_slide(r) and _fits(sp, t) and not any(_hit(r, o) for o in others):
                 chosen, rect = t, r; break
         if chosen is None:
             b = _box(sp)
@@ -404,24 +423,97 @@ def layout_solver(kids, tiers_map):
             chosen, rect = _try_lift(sp, cands, others)
         if chosen is None:
             chosen = TIERS[-1]; rect = _content_rect(sp, chosen)
-            unresolved.append(texts_of(sp).strip()[:40])
+            # не флажим здесь: финальный де-оверлап ниже — единственный судья наездов
         steps = TIERS.index(chosen) - TIERS.index(dom)
         for rpr, t in run_tiers:
             nt = TIERS[min(max(TIERS.index(t) + steps, 0), len(TIERS)-1)]
             rpr.set("sz", str(nt))
-        if rect: placed.append((rect, sp, _box(sp)))
-    for i in range(len(placed)):
-        for j in range(len(placed)):
-            if i == j: continue
-            ra, sa, ba = placed[i]; rb, sb, bb = placed[j]
-            if not _hit(ra, rb): continue
-            if ba[0] >= bb[0]: continue
-            new_cx = bb[0] - ba[0] - 91425
-            if new_cx >= max(900000, 0.35*ba[2]):
-                xf = sa.find(f"{q('p:spPr')}/{q('a:xfrm')}")
-                if xf is not None:
-                    xf.find(q("a:ext")).set("cx", str(new_cx))
-                    ra[2] = min(ra[2], new_cx)
+        _shrink_to_selffit(sp, run_tiers)     # G1: текст не вылезает из своего бокса
+        placed.append((sp, run_tiers))
+        if rect:
+            placed_rects.append(rect)
+
+    # G2: устраняем ПЕРЕСЕЧЕНИЯ ТЕКСТ-НА-ТЕКСТ и текст-на-картинку.
+    # Итеративно до неподвижной точки: если два текста накладываются — ужимаем верхний
+    # (обычно его текст растёт вниз), при упоре в пол — нижний, затем сдвиг нижнего вниз.
+    solids = [b for b, solid in obstacles]     # картинки/таблицы/код-карточки — не двигаем
+    def rect_now(sp, rt):
+        return _content_rect(sp, _cur_pt(rt))
+    for _ in range(12):
+        changed = False
+        order = sorted(placed, key=lambda it: (rect_now(*it) or [0, 0])[1])
+        rects = {id(it[0]): rect_now(*it) for it in order}
+        for a in range(len(order)):
+            spa, rta = order[a]; ra = rects[id(spa)]
+            if ra is None:
+                continue
+            # конфликты: другие текстовые блоки + сплошные объекты
+            confs = []
+            for b in range(len(order)):
+                if b == a:
+                    continue
+                rb = rects[id(order[b][0])]
+                if rb and _hit(ra, rb, pad=20000):
+                    confs.append(("text", order[b]))
+            for ob in solids:
+                if _hit(ra, ob, pad=20000):
+                    confs.append(("solid", ob))
+            if not confs:
+                continue
+            # 1) ужать верхний блок пары (spa), пока не разъедется, до пола
+            pt = _cur_pt(rta)
+            while pt > MIN_PT:
+                pt = max(MIN_PT, int(pt * 0.9))
+                _set_pt(rta, pt)
+                ra = rect_now(spa, rta); rects[id(spa)] = ra
+                if ra is None:
+                    break
+                still = any(rects[id(o[0])] and _hit(ra, rects[id(o[0])], 20000)
+                            for k, o in confs if k == "text") or \
+                        any(_hit(ra, ob, 20000) for k, ob in confs if k == "solid")
+                changed = True
+                if not still:
+                    break
+            # 2) если всё ещё пересекается с текстом-соседом снизу — сдвинуть соседа вниз
+            ra = rects[id(spa)]
+            if ra:
+                for k, o in confs:
+                    if k != "text":
+                        continue
+                    spb, rtb = o; rb = rects[id(spb)]
+                    if not (rb and _hit(ra, rb, 20000)):
+                        continue
+                    bb = _box(spb)
+                    if bb is None:
+                        continue
+                    dy = (ra[1] + ra[3]) - rb[1] + 40000
+                    if dy > 0 and bb[1] + dy + rb[3] <= H - 20000:
+                        off = spb.find(f"{q('p:spPr')}/{q('a:xfrm')}/{q('a:off')}")
+                        off.set("y", str(bb[1] + dy))
+                        rects[id(spb)] = rect_now(spb, rtb)
+                        changed = True
+        if not changed:
+            break
+
+    # что осталось пересекающимся после всех попыток — во «нерешённое» (для замечаний).
+    # Здесь оценка РЕАЛИСТИЧНАЯ (hfudge≈1.02), чтобы не пугать фантомными микронаездами.
+    final = {id(it[0]): _content_rect(it[0], _cur_pt(it[1]), hfudge=1.02) for it in placed}
+    seen = set()
+    for i, (spa, rta) in enumerate(placed):
+        ra = final[id(spa)]
+        if ra is None:
+            continue
+        for j, (spb, rtb) in enumerate(placed):
+            if j <= i:
+                continue
+            rb = final[id(spb)]
+            # флажок только при ЗАМЕТНОМ остаточном наезде (оценка высоты консервативна,
+            # поэтому микропересечения по оценке — не повод пугать пользователя)
+            if rb and _hit(ra, rb, pad=130000):
+                for s in (spa, spb):
+                    t = texts_of(s).strip()[:40]
+                    if t and t not in seen:
+                        seen.add(t); unresolved.append(t)
     return unresolved
 
 # ---------- код в тексте ----------
