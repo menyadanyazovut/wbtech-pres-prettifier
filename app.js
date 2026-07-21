@@ -1,35 +1,69 @@
 /* Страница: только UI. Вся механика — в engine/engine.js (контракт:
-   RestyleEngine.init(onProgress) и RestyleEngine.convert(arrayBuffer) ->
-   {pptx: Uint8Array, remarks: [{slide, action, comment}]}). */
+   RestyleEngine.init(onProgress) / .convert(buf) / .ready). */
 (function () {
   const MAX_FILES = 15;
   const drop = document.getElementById("drop");
   const picker = document.getElementById("picker");
   const statusEl = document.getElementById("status");
+  const bootbar = document.getElementById("bootbar");
+  const bootfill = bootbar.querySelector("i");
   const results = document.getElementById("results");
 
-  const enginePromise = RestyleEngine.init(msg => { statusEl.textContent = msg; });
+  // ---- индикатор загрузки движка ----
+  function bootProgress({ pct, label }) {
+    if (label) statusEl.textContent = label;
+    bootbar.classList.add("show");
+    if (pct == null) {
+      bootbar.classList.add("indet");
+    } else {
+      bootbar.classList.remove("indet");
+      bootfill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+  }
+
+  let bootFailed = false;
+  const enginePromise = RestyleEngine.init(bootProgress)
+    .then(() => {
+      statusEl.innerHTML = '<span class="ok">Движок готов</span> — прикрепляйте файлы .pptx.';
+      setTimeout(() => bootbar.classList.remove("show"), 600);
+    })
+    .catch((e) => {
+      bootFailed = true;
+      bootbar.classList.remove("show");
+      statusEl.innerHTML = '<span class="err">Не удалось загрузить движок: ' + esc(e.message || e) +
+        '</span><br><small>Обновите страницу; если повторяется — проверьте соединение или напишите нам.</small>';
+      throw e;
+    });
+  // не роняем консоль необработанным реджектом
+  enginePromise.catch(() => {});
 
   drop.addEventListener("click", () => picker.click());
-  picker.addEventListener("change", () => handle([...picker.files]));
+  picker.addEventListener("change", () => { handle([...picker.files]); picker.value = ""; });
   ["dragover", "dragenter"].forEach(ev =>
     drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach(ev =>
     drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", e => handle([...e.dataTransfer.files]));
 
-  async function handle(files) {
-    files = files.filter(f => f.name.toLowerCase().endsWith(".pptx")).slice(0, MAX_FILES);
-    if (!files.length) { statusEl.textContent = "Нужны файлы .pptx"; return; }
-    statusEl.textContent = "Готовлю движок…";
-    try { await enginePromise; } catch (e) {
-      statusEl.innerHTML = '<span class="err">Не удалось загрузить движок: ' + e + "</span>"; return;
-    }
-    for (const f of files) {
+  async function handle(fileList) {
+    const files = fileList.filter(f => f.name.toLowerCase().endsWith(".pptx")).slice(0, MAX_FILES);
+    if (!files.length) { flash("Нужны файлы .pptx"); return; }
+    if (bootFailed) { flash("Движок не загрузился — обновите страницу"); return; }
+
+    // карточки создаём сразу — пользователь видит, что файлы приняты,
+    // даже если движок ещё догружается (обработка начнётся автоматически).
+    const cards = files.map(f => {
       const card = fileCard(f.name);
       results.prepend(card.root);
+      card.setBusy(RestyleEngine.ready ? "Обрабатываю…" : "Ждёт загрузки движка…");
+      return { f, card };
+    });
+
+    try { await enginePromise; } catch (e) { cards.forEach(c => c.card.fail("движок недоступен")); return; }
+
+    for (const { f, card } of cards) {
       try {
-        card.state.textContent = "Обрабатываю…";
+        card.setBusy("Обрабатываю…");
         const buf = await f.arrayBuffer();
         const t0 = performance.now();
         const { pptx, remarks } = await RestyleEngine.convert(buf);
@@ -40,15 +74,23 @@
         a.href = URL.createObjectURL(blob);
         a.download = f.name.replace(/\.pptx$/i, "") + " — по дизайн-коду.pptx";
         a.textContent = "Скачать исправленный .pptx";
-        card.state.innerHTML = '<span class="ok">Готово</span> за ' + sec + " с";
+        card.done('<span class="ok">Готово</span> за ' + sec + " с");
         card.root.appendChild(a);
         card.root.appendChild(remarksTable(remarks));
       } catch (e) {
-        card.state.innerHTML = '<span class="err">Ошибка: ' + e + "</span>";
         console.error(e);
+        card.fail(esc((e && e.message) || e));
       }
     }
-    statusEl.textContent = "";
+  }
+
+  // ---- вспомогательное ----
+  function esc(s) { const d = document.createElement("div"); d.textContent = String(s); return d.innerHTML; }
+
+  function flash(msg) {
+    const prev = statusEl.innerHTML;
+    statusEl.innerHTML = '<span class="err">' + esc(msg) + "</span>";
+    setTimeout(() => { if (RestyleEngine.ready) statusEl.innerHTML = prev; }, 2500);
   }
 
   function fileCard(name) {
@@ -56,8 +98,14 @@
     root.className = "file";
     const h = document.createElement("h3"); h.textContent = name;
     const state = document.createElement("div"); state.className = "state";
-    root.append(h, state);
-    return { root, state };
+    const bar = document.createElement("div"); bar.className = "bar"; bar.innerHTML = "<i></i>";
+    root.append(h, state, bar);
+    return {
+      root, state,
+      setBusy(txt) { state.textContent = txt; bar.classList.add("show", "indet"); },
+      done(html) { state.innerHTML = html; bar.classList.remove("show", "indet"); },
+      fail(msg) { state.innerHTML = '<span class="err">Ошибка: ' + msg + "</span>"; bar.classList.remove("show", "indet"); },
+    };
   }
 
   function remarksTable(remarks) {

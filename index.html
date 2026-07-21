@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Причесыватель презентаций — WB Техношкола</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root { --navy:#080040; --pink:#FF067E; --light:#F2FAFF; --gray:#4A4676; }
@@ -17,7 +18,17 @@
   .drop.over { background:#e4f0ff; }
   .drop b { color:var(--pink); }
   .drop small { display:block; margin-top:8px; color:var(--gray); }
-  #status { margin:20px 0; font-size:14px; color:var(--gray); min-height:20px; }
+
+  /* индикатор загрузки движка */
+  #boot { margin:20px 0; }
+  #status { font-size:14px; color:var(--gray); min-height:20px; }
+  .bar { height:8px; border-radius:6px; background:#dfe6f4; overflow:hidden; margin-top:8px; display:none; }
+  .bar.show { display:block; }
+  .bar > i { display:block; height:100%; width:0; border-radius:6px; background:var(--pink);
+             transition:width .25s ease; }
+  .bar.indet > i { width:40% !important; animation:slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0%{margin-left:-40%} 100%{margin-left:100%} }
+
   .file { background:#fff; border-radius:12px; padding:20px 24px; margin:16px 0;
           box-shadow:0 1px 4px rgba(8,0,64,.08); }
   .file h3 { font-family:'JetBrains Mono',monospace; font-size:17px; word-break:break-all; }
@@ -47,7 +58,12 @@
     <small>до 15 файлов .pptx</small>
     <input type="file" id="picker" accept=".pptx" multiple hidden>
   </div>
-  <div id="status">Движок загружается в фоне — можно уже прикреплять файлы.</div>
+
+  <div id="boot">
+    <div id="status">Готовлю движок…</div>
+    <div class="bar" id="bootbar"><i></i></div>
+  </div>
+
   <div id="results"></div>
 
   <footer>Обработка происходит целиком в вашем браузере (Python/WebAssembly) —
