@@ -18,6 +18,20 @@ window.RestyleEngine = (function () {
   let initPromise = null;
   const api = { init, convert, get ready() { return !!pyodide; } };
 
+  // Достаём осмысленный текст из любого значения (Error / PythonError / объект).
+  function msgOf(e) {
+    if (e == null) return "неизвестная ошибка";
+    if (typeof e === "string") return e;
+    if (e.message) return e.message;
+    try { const j = JSON.stringify(e); if (j && j !== "{}") return j; } catch (_) {}
+    return String(e);
+  }
+  // Await с меткой этапа: любая ошибка становится Error("этап: причина").
+  async function step(label, promise) {
+    try { return await promise; }
+    catch (e) { throw new Error(label + ": " + msgOf(e)); }
+  }
+
   function loadScript(src) {
     return new Promise((ok, err) => {
       const s = document.createElement("script");
@@ -70,22 +84,22 @@ window.RestyleEngine = (function () {
           if (pyodide) say(72 + Math.round(f * 24), "Загружаю шаблон дизайн-кода… " + Math.round(f * 100) + "%");
         });
 
-        if (!window.loadPyodide) await loadScript(PYODIDE + "pyodide.js");
+        if (!window.loadPyodide) await step("загрузка pyodide.js", loadScript(PYODIDE + "pyodide.js"));
         say(10, "Инициализирую Python…");
-        pyodide = await loadPyodide({ indexURL: PYODIDE });
+        pyodide = await step("инициализация Python", loadPyodide({ indexURL: PYODIDE }));
 
         say(52, "Устанавливаю библиотеки (lxml, Pillow, Pygments)…");
-        await pyodide.loadPackage(["lxml", "pillow", "pygments"]);
+        await step("установка библиотек", pyodide.loadPackage(["lxml", "pillow", "pygments"]));
 
         say(72, "Загружаю шаблон дизайн-кода… " + Math.round(tplFrac * 100) + "%");
-        const assets = await assetsP;   // чаще всего уже скачано за время загрузки Pyodide
+        const assets = await step("загрузка шаблона", assetsP);   // чаще всего уже скачано за время загрузки Pyodide
 
         say(97, "Готовлю движок…");
         pyodide.FS.mkdirTree("assets");
         for (const a of assets) {
           pyodide.FS.writeFile(a.path, a.text ? new TextDecoder().decode(a.bytes) : a.bytes);
         }
-        pyodide.runPython("import engine");   // при ошибке импорта промис реджектится — страница покажет её
+        await step("импорт engine.py", Promise.resolve().then(() => pyodide.runPython("import engine")));
         say(100, "Готово");
       } catch (e) {
         pyodide = null;                       // разрешить повторную попытку

@@ -10,8 +10,9 @@
   const results = document.getElementById("results");
 
   // ---- индикатор загрузки движка ----
+  let lastLabel = "старт";
   function bootProgress({ pct, label }) {
-    if (label) statusEl.textContent = label;
+    if (label) { statusEl.textContent = label; lastLabel = label; }
     bootbar.classList.add("show");
     if (pct == null) {
       bootbar.classList.add("indet");
@@ -30,8 +31,10 @@
     .catch((e) => {
       bootFailed = true;
       bootbar.classList.remove("show");
-      statusEl.innerHTML = '<span class="err">Не удалось загрузить движок: ' + esc(e.message || e) +
-        '</span><br><small>Обновите страницу; если повторяется — проверьте соединение или напишите нам.</small>';
+      console.error("RestyleEngine.init failed at stage:", lastLabel, e);
+      statusEl.innerHTML = '<span class="err">Не удалось загрузить движок</span> (этап: ' + esc(lastLabel) +
+        ')<br><small>' + esc(errStr(e)) +
+        '</small><br><small>Обновите страницу; если повторяется — пришлите этот текст.</small>';
       throw e;
     });
   // не роняем консоль необработанным реджектом
@@ -79,13 +82,22 @@
         card.root.appendChild(remarksTable(remarks));
       } catch (e) {
         console.error(e);
-        card.fail(esc((e && e.message) || e));
+        card.fail(esc(errStr(e)));
       }
     }
   }
 
   // ---- вспомогательное ----
   function esc(s) { const d = document.createElement("div"); d.textContent = String(s); return d.innerHTML; }
+
+  // Надёжно достаём текст из чего угодно (Error / PythonError / объект / строка).
+  function errStr(e) {
+    if (e == null) return "неизвестная ошибка";
+    if (typeof e === "string") return e;
+    if (e.message) return (e.name ? e.name + ": " : "") + e.message;
+    try { const j = JSON.stringify(e); if (j && j !== "{}") return j; } catch (_) {}
+    return String(e);
+  }
 
   function flash(msg) {
     const prev = statusEl.innerHTML;
