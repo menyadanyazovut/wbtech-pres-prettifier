@@ -95,9 +95,13 @@ window.RestyleEngine = (function () {
         const assets = await step("загрузка шаблона", assetsP);   // чаще всего уже скачано за время загрузки Pyodide
 
         say(97, "Готовлю движок…");
-        pyodide.FS.mkdirTree("assets");
+        // ВАЖНО: FS.mkdirTree и FS.writeFile по-разному разрешают относительные пути
+        // (mkdirTree — от корня, writeFile — от cwd Python), поэтому пишем ТОЛЬКО
+        // по абсолютным путям в рабочий каталог, где engine.py открывает файлы относительно.
+        const CWD = pyodide.runPython("import os; os.getcwd()");
+        pyodide.FS.mkdirTree(CWD + "/assets");
         for (const a of assets) {
-          pyodide.FS.writeFile(a.path, a.text ? new TextDecoder().decode(a.bytes) : a.bytes);
+          pyodide.FS.writeFile(CWD + "/" + a.path, a.text ? new TextDecoder().decode(a.bytes) : a.bytes);
         }
         await step("импорт engine.py", Promise.resolve().then(() => pyodide.runPython("import engine")));
         say(100, "Готово");
