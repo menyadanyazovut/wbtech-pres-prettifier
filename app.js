@@ -12,25 +12,20 @@
   const keyhelp = document.getElementById("keyhelp");
 
   // ---- модели/провайдеры (ключ нужен для всех; хранится только локально) ----
-  const MODELS = {
-    deepseek: { provider: "openrouter", id: "deepseek/deepseek-r1:free", keytype: "openrouter" },
-    qwen:     { provider: "openrouter", id: "qwen/qwen3-235b-a22b:free", keytype: "openrouter" },
-    claude:   { provider: "anthropic",  id: "claude-sonnet-5",           keytype: "anthropic" },
-  };
+  // Значение опции: "an:<id>" — Anthropic, "or:<slug>" — OpenRouter.
+  // Список бесплатных моделей подгружается ЖИВЫМ из OpenRouter (слоги меняются еженедельно).
   const KEY_HELP = {
-    openrouter: 'Ключ OpenRouter (бесплатно): <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> → войдите → Create key. Начинается с <code>sk-or-</code>. Бесплатные модели помечены <code>:free</code> и не списывают деньги.',
+    openrouter: 'Ключ OpenRouter (бесплатно): <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> → войдите → Create key. Начинается с <code>sk-or-</code>. Выбранные модели помечены как бесплатные и не списывают деньги (лимиты ~20 запросов/мин).',
     anthropic:  'Ключ Anthropic (платно): <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → Settings → API keys</a> → Create key. Начинается с <code>sk-ant-</code>. Нужен аккаунт с пополненным балансом.',
   };
   const KEY_PH = { openrouter: "sk-or-...", anthropic: "sk-ant-..." };
   const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 
-  function curModel() { return MODELS[modelSel.value] || MODELS.deepseek; }
-
-  function loadSettings() {
-    modelSel.value = lsGet("wbtech_model") || "deepseek";
-    if (!MODELS[modelSel.value]) modelSel.value = "deepseek";
-    applyModel();
+  function curModel() {
+    const v = modelSel.value || "an:claude-sonnet-5";
+    const provider = v.startsWith("an:") ? "anthropic" : "openrouter";
+    return { provider, keytype: provider, id: v.slice(3) };
   }
   function applyModel() {
     const m = curModel();
@@ -59,10 +54,56 @@
     const m = curModel();
     return { provider: m.provider, key: apikey.value.trim(), model: modelid.value.trim() || m.id };
   }
+
+  // Подтянуть актуальные бесплатные модели OpenRouter (публичный эндпоинт, ключ не нужен).
+  async function loadFreeModels() {
+    let free = [];
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/models");
+      const d = await r.json();
+      free = (d.data || []).filter((m) => {
+        const p = m.pricing || {};
+        return Number(p.prompt) === 0 && Number(p.completion) === 0;
+      });
+      // осмысленные для нашей задачи: инструктивные/чат, приличный контекст; вперёд Qwen
+      free = free.filter((m) => !/vision|image|tts|embed|guard|rerank/i.test(m.id));
+      free.sort((a, b) => {
+        const qa = /qwen/i.test(a.id) ? 0 : 1, qb = /qwen/i.test(b.id) ? 0 : 1;
+        if (qa !== qb) return qa - qb;
+        return (a.name || a.id).localeCompare(b.name || b.id);
+      });
+    } catch (e) { free = []; }
+
+    // очистить прежние динамические опции, оставить фиксированный Claude
+    [...modelSel.querySelectorAll("optgroup, option[data-free]")].forEach((n) => n.remove());
+    if (free.length) {
+      const g = document.createElement("optgroup"); g.label = "Бесплатные (OpenRouter)";
+      for (const m of free.slice(0, 30)) {
+        const o = document.createElement("option");
+        o.value = "or:" + m.id; o.textContent = (m.name || m.id) + " — бесплатно";
+        o.setAttribute("data-free", "1");
+        g.appendChild(o);
+      }
+      modelSel.insertBefore(g, modelSel.firstChild);
+    } else {
+      keyhelp.insertAdjacentHTML("afterend",
+        '<p class="hint" id="freefail">Не удалось загрузить список бесплатных моделей. Выберите Claude или впишите ID вручную (см. <a href="https://openrouter.ai/models?max_price=0" target="_blank" rel="noopener">openrouter.ai/models?max_price=0</a>).</p>');
+    }
+    // восстановить сохранённый выбор (если он ещё в списке), иначе — первый бесплатный
+    const saved = lsGet("wbtech_model");
+    if (saved && modelSel.querySelector('option[value="' + CSS.escape(saved) + '"]')) {
+      modelSel.value = saved;
+    } else if (free.length) {
+      modelSel.value = "or:" + free[0].id;
+    }
+    applyModel();
+  }
+
   modelSel.addEventListener("change", () => { lsSet("wbtech_model", modelSel.value); applyModel(); });
   apikey.addEventListener("input", saveSettings);
   modelid.addEventListener("input", saveSettings);
-  loadSettings();
+  applyModel();          // сразу показать состояние (по Claude), пока грузится список
+  loadFreeModels();      // затем подтянуть живые бесплатные модели
   const statusEl = document.getElementById("status");
   const bootbar = document.getElementById("bootbar");
   const bootfill = bootbar.querySelector("i");
