@@ -79,7 +79,8 @@
         a.textContent = "Скачать исправленный .pptx";
         card.done('<span class="ok">Готово</span> за ' + sec + " с");
         card.root.appendChild(a);
-        card.root.appendChild(remarksTable(remarks));
+        card.root.appendChild(remarksBlock(remarks));
+        openTopOnly();   // раскрыт только самый верхний блок в списке
       } catch (e) {
         console.error(e);
         card.fail(esc(errStr(e)));
@@ -120,42 +121,65 @@
     };
   }
 
-  function remarksTable(remarks) {
+  // SVG-галочка (16×16) — серая по умолчанию, зелёная на ховере (через CSS .resolve)
+  const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+  // Свернутый/развёрнутый блок замечаний по одной презентации (нативный <details>).
+  function remarksBlock(remarks) {
+    const det = document.createElement("details");
+    det.className = "remarks";
+    const sum = document.createElement("summary");
+    const n = remarks.length;
+    sum.textContent = n ? "Замечания (" + n + ")" : "Замечаний нет";
+    det.appendChild(sum);
+    if (n) det.appendChild(remarksTable(remarks, sum));
+    return det;
+  }
+
+  function remarksTable(remarks, summaryEl) {
     const t = document.createElement("table");
     t.innerHTML = "<tr><th>Слайд</th><th>Действие</th><th>Комментарий</th></tr>";
-    if (!remarks.length) {
-      const tr = t.insertRow();
-      tr.insertCell().textContent = "—";
-      tr.insertCell().textContent = "замечаний нет";
-      tr.insertCell();
-      return t;
-    }
     remarks.sort((a, b) => a.slide - b.slide);
+    const refreshCount = () => {
+      const left = t.querySelectorAll("tr.remark").length;
+      if (summaryEl) summaryEl.textContent = left ? "Замечания (" + left + ")" : "Все замечания отработаны";
+    };
     for (const r of remarks) {
       const tr = t.insertRow();
       tr.className = "remark";
       const n = tr.insertCell(); n.className = "n";
-      const chk = document.createElement("input");
-      chk.type = "checkbox"; chk.className = "chk";
-      chk.title = "Пометить как исправленное";
-      const num = document.createElement("span"); num.textContent = r.slide;
-      n.append(chk, num);
+      const num = document.createElement("span"); num.className = "num"; num.textContent = r.slide;
+      const btn = document.createElement("span");
+      btn.className = "resolve"; btn.innerHTML = CHECK_SVG;
+      btn.title = "Пометить как исправленное";
+      btn.setAttribute("role", "button"); btn.tabIndex = 0;
+      n.append(num, btn);
       tr.insertCell().textContent = r.action;
       tr.insertCell().textContent = r.comment || "";
-      chk.addEventListener("change", () => { if (chk.checked) resolveRow(tr); });
+      const fire = () => resolveRow(tr, refreshCount);
+      btn.addEventListener("click", fire);
+      btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire(); } });
     }
     return t;
   }
 
+  // Держим раскрытым только самый верхний блок замечаний в списке результатов.
+  function openTopOnly() {
+    const blocks = results.querySelectorAll("details.remarks");
+    blocks.forEach((d, i) => { d.open = (i === 0); });
+  }
+
   // Удалить строку замечания с возможностью отмены через snackbar.
-  function resolveRow(tr) {
+  function resolveRow(tr, refreshCount) {
     const table = tr.parentNode;
     const anchor = tr.nextSibling;                 // куда вернуть при отмене
     table.removeChild(tr);
+    if (refreshCount) refreshCount();
     showSnack("Комментарий удалён", () => {
-      const chk = tr.querySelector(".chk"); if (chk) chk.checked = false;
       if (anchor && anchor.parentNode === table) table.insertBefore(tr, anchor);
       else table.appendChild(tr);
+      if (refreshCount) refreshCount();
     });
   }
 

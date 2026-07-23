@@ -48,13 +48,22 @@
   .err { color:#C4003F; }
   footer { margin-top:48px; font-size:12px; line-height:1.6; color:var(--gray); }
 
-  /* строка замечания: галочка «исправлено» слева */
-  tr.remark td:first-child { position:relative; }
-  .chk { -webkit-appearance:none; appearance:none; width:16px; height:16px; border:2px solid var(--gray);
-         border-radius:4px; cursor:pointer; vertical-align:middle; margin-right:8px; transition:.15s; flex:0 0 auto; }
-  .chk:hover { border-color:var(--pink); }
-  .chk:checked { background:var(--pink); border-color:var(--pink); }
-  td.n { display:flex; align-items:center; gap:0; }
+  /* сворачиваемый блок замечаний по одной презентации */
+  details.remarks { margin:6px 0 4px; }
+  details.remarks > summary { cursor:pointer; font-size:13px; font-weight:500; color:var(--navy);
+                              list-style:none; padding:6px 0; user-select:none; }
+  details.remarks > summary::-webkit-details-marker { display:none; }
+  details.remarks > summary::before { content:"▸"; display:inline-block; margin-right:8px;
+                                      color:var(--gray); transition:transform .15s; }
+  details.remarks[open] > summary::before { transform:rotate(90deg); }
+
+  /* строка замечания: номер слайда + иконка-галочка справа */
+  td.n { white-space:nowrap; }
+  td.n .num { vertical-align:middle; }
+  .resolve { display:inline-flex; align-items:center; margin-left:10px; cursor:pointer;
+             color:var(--gray); transition:color .15s; vertical-align:middle; }
+  .resolve:hover { color:#2CA66C; }
+  .resolve svg { width:16px; height:16px; display:block; }
 
   /* snackbar-стек: правый нижний угол, не более трёх */
   #snacks { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column;
