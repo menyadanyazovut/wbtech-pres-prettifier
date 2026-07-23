@@ -4,6 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Причесыватель презентаций — WB Техношкола</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="64x64" type="image/png">
+<link rel="apple-touch-icon" href="favicon-32.png">
+<meta name="description" content="Приводит учебные презентации к дизайн-коду WB Техношколы: фирменные шаблоны, шрифты, цвета, типографика. Всё в браузере.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://menyadanyazovut.github.io/wbtech-pres-prettifier/">
+<meta property="og:title" content="Причесыватель презентаций — WB Техношкола">
+<meta property="og:description" content="Загрузите презентацию — инструмент пересоберёт её по дизайн-коду: фирменные макеты, шрифты, цвета, типографика. Всё в браузере.">
+<meta property="og:image" content="https://menyadanyazovut.github.io/wbtech-pres-prettifier/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Причесыватель презентаций — WB Техношкола">
+<meta name="twitter:description" content="Пересобирает презентации по дизайн-коду WB Техношколы. Всё в браузере.">
+<meta name="twitter:image" content="https://menyadanyazovut.github.io/wbtech-pres-prettifier/og.png">
 <!-- CSP: ограничивает, куда можно отправлять данные — чужой скрипт не сможет утащить ваш ключ
      на посторонний домен. Разрешены только CDN движка, шрифты и API нейросетей. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com https://api.anthropic.com https://openrouter.ai">
@@ -26,10 +41,17 @@
   .drop b { color:var(--pink); font-weight:700; }
   .drop small { display:block; margin-top:8px; font-size:13px; color:var(--gray); }
 
-  /* настройки Claude API */
+  /* блок «Качество как в чате» */
   .settings { margin:18px 0 0; }
-  .settings > summary { cursor:pointer; font-size:13px; color:var(--gray); user-select:none; list-style:none; }
+  .settings > summary { cursor:pointer; user-select:none; list-style:none; display:inline-flex;
+      align-items:center; gap:10px; font-size:14px; font-weight:500; color:var(--navy);
+      background:#fff; border:1px solid var(--navy); border-radius:10px; padding:11px 16px;
+      transition:background .15s; }
+  .settings > summary:hover { background:#eaf1fd; }
   .settings > summary::-webkit-details-marker { display:none; }
+  .settings > summary::after { content:"▾"; color:var(--pink); font-size:12px; transition:transform .15s; }
+  .settings[open] > summary::after { transform:rotate(180deg); }
+  .settings a.dl { color:#fff; }        /* иначе .settings a перекрасил бы текст в розовый */
   .settings-body { margin-top:12px; display:flex; flex-direction:column; gap:10px; max-width:560px; }
   .settings label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; }
   .settings input, .settings select { font-family:var(--mono); font-size:13px; padding:9px 11px;
@@ -132,7 +154,7 @@
   </div>
 
   <details class="settings" id="settings">
-    <summary>⚙ Качество «как в чате» — через свой ИИ (необязательно)</summary>
+    <summary>⚙ Подключить свой ИИ — качество «как в чате»</summary>
     <div class="settings-body">
       <p class="hint">Базовый режим работает без всего — просто загрузите файл: контент
         переносится с фирменным оформлением. Чтобы получить полноценную переверстку (плитки,
@@ -144,7 +166,7 @@
           (ChatGPT → Custom Instructions; Claude → Settings → Capabilities → Skills → Add), затем
           приложите презентацию — агент переверстает её в вашей среде. Ни ключи, ни файлы никуда
           не уходят.</p>
-        <a class="dl" id="dlskill" href="wb-restyle-skill.md" download="wb-restyle-skill.md">Скачать инструкцию (SKILL.md)</a>
+        <a class="dl" id="dlskill" href="wb-restyle-skill.md" download="wb-restyle-skill.md">⬇ Скачать markdown-файл</a>
       </div>
 
       <details class="ai-card">
