@@ -121,19 +121,21 @@
     <div class="settings-body">
       <p class="hint">С нейросетью инструмент подбирает фирменный макет под каждый слайд и
         переписывает текст (плитки, колонки, «картинка + текст»). Без неё — базовый режим:
-        перенос содержимого с фирменным оформлением, без переверстки.
-        <b>Ключ нужен для любой модели</b> — бесплатных «без ключа» не бывает; для DeepSeek и
-        Qwen ключ бесплатный. Ключ хранится только в вашем браузере и уходит напрямую к
-        провайдеру.</p>
+        перенос содержимого с фирменным оформлением, без переверстки.<br>
+        <b>Модели «Без ключа (Puter)» работают сразу</b> — ничего вводить не нужно (при первом
+        запуске Puter один раз попросит бесплатный вход). Ниже — вариант со своим ключом, если
+        хотите свои лимиты.</p>
       <label>Модель
         <select id="model">
-          <option value="an:claude-sonnet-5">Claude Sonnet — платно (ключ Anthropic)</option>
+          <option value="an:claude-sonnet-5">Claude Sonnet — свой ключ Anthropic</option>
         </select>
       </label>
-      <label id="keylabel">Ключ
-        <input type="password" id="apikey" placeholder="..." autocomplete="off" spellcheck="false">
-      </label>
-      <p class="hint" id="keyhelp"></p>
+      <div id="keybox">
+        <label id="keylabel">Ключ
+          <input type="password" id="apikey" placeholder="..." autocomplete="off" spellcheck="false">
+        </label>
+        <p class="hint" id="keyhelp"></p>
+      </div>
       <details class="adv"><summary>ID модели — если провайдер не знает модель, впишите точный</summary>
         <input type="text" id="modelid" spellcheck="false">
       </details>
@@ -153,6 +155,7 @@
     и обновляется независимо от этой страницы.</footer>
 </div>
 <div id="snacks"></div>
+<script src="https://js.puter.com/v2/"></script>
 <script src="engine/engine.js"></script>
 <script src="app.js"></script>
 </body>

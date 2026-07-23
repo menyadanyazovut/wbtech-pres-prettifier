@@ -22,13 +22,29 @@
   const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 
+  const keybox = document.getElementById("keybox");
+  // Модели Puter — работают БЕЗ ключа (User-Pays). Значение "pu:<slug>".
+  const PUTER_MODELS = [
+    ["anthropic/claude-sonnet-5", "Claude Sonnet 5 — без ключа (лучшее качество)"],
+    ["google/gemini-3.1-pro-preview", "Gemini 3.1 Pro — без ключа"],
+    ["openai/gpt-5.4-nano", "GPT-5.4 nano — без ключа (быстро)"],
+    ["x-ai/grok-4.5", "Grok 4.5 — без ключа"],
+  ];
   function curModel() {
-    const v = modelSel.value || "an:claude-sonnet-5";
-    const provider = v.startsWith("an:") ? "anthropic" : "openrouter";
+    const v = modelSel.value || "pu:anthropic/claude-sonnet-5";
+    const provider = v.startsWith("pu:") ? "puter" : v.startsWith("an:") ? "anthropic" : "openrouter";
     return { provider, keytype: provider, id: v.slice(3) };
   }
   function applyModel() {
     const m = curModel();
+    if (m.provider === "puter") {
+      keybox.style.display = "none";
+      keystate.textContent = "Работает без ключа через Puter (при первом запуске — бесплатный вход в Puter).";
+      keystate.className = "hint on";
+      modelid.value = lsGet("wbtech_id_" + modelSel.value) || m.id;
+      return;
+    }
+    keybox.style.display = "";
     apikey.value = lsGet("wbtech_key_" + m.keytype);
     apikey.placeholder = KEY_PH[m.keytype];
     modelid.value = lsGet("wbtech_id_" + modelSel.value) || m.id;
@@ -55,6 +71,17 @@
     return { provider: m.provider, key: apikey.value.trim(), model: modelid.value.trim() || m.id };
   }
 
+  // Группа Puter (без ключа) — добавляется сразу, наверх списка.
+  function addPuterGroup() {
+    if (modelSel.querySelector('optgroup[label="Без ключа (Puter)"]')) return;
+    const g = document.createElement("optgroup"); g.label = "Без ключа (Puter)";
+    for (const [slug, label] of PUTER_MODELS) {
+      const o = document.createElement("option"); o.value = "pu:" + slug; o.textContent = label;
+      g.appendChild(o);
+    }
+    modelSel.insertBefore(g, modelSel.firstChild);
+  }
+
   // Подтянуть актуальные бесплатные модели OpenRouter (публичный эндпоинт, ключ не нужен).
   async function loadFreeModels() {
     let free = [];
@@ -74,36 +101,37 @@
       });
     } catch (e) { free = []; }
 
-    // очистить прежние динамические опции, оставить фиксированный Claude
-    [...modelSel.querySelectorAll("optgroup, option[data-free]")].forEach((n) => n.remove());
+    // убрать прежние динамические опции OpenRouter (Puter-группа и Claude остаются)
+    [...modelSel.querySelectorAll("option[data-free]")].forEach((n) => n.remove());
+    const oldg = modelSel.querySelector('optgroup[label="Свой ключ: бесплатные (OpenRouter)"]');
+    if (oldg) oldg.remove();
     if (free.length) {
-      const g = document.createElement("optgroup"); g.label = "Бесплатные (OpenRouter)";
+      const g = document.createElement("optgroup"); g.label = "Свой ключ: бесплатные (OpenRouter)";
       for (const m of free.slice(0, 30)) {
         const o = document.createElement("option");
-        o.value = "or:" + m.id; o.textContent = (m.name || m.id) + " — бесплатно";
+        o.value = "or:" + m.id; o.textContent = (m.name || m.id) + " — свой ключ OpenRouter";
         o.setAttribute("data-free", "1");
         g.appendChild(o);
       }
-      modelSel.insertBefore(g, modelSel.firstChild);
-    } else {
-      keyhelp.insertAdjacentHTML("afterend",
-        '<p class="hint" id="freefail">Не удалось загрузить список бесплатных моделей. Выберите Claude или впишите ID вручную (см. <a href="https://openrouter.ai/models?max_price=0" target="_blank" rel="noopener">openrouter.ai/models?max_price=0</a>).</p>');
+      modelSel.appendChild(g);
     }
-    // восстановить сохранённый выбор (если он ещё в списке), иначе — первый бесплатный
+    // восстановить сохранённый выбор, если он ещё в списке
     const saved = lsGet("wbtech_model");
     if (saved && modelSel.querySelector('option[value="' + CSS.escape(saved) + '"]')) {
       modelSel.value = saved;
-    } else if (free.length) {
-      modelSel.value = "or:" + free[0].id;
+      applyModel();
     }
-    applyModel();
   }
 
   modelSel.addEventListener("change", () => { lsSet("wbtech_model", modelSel.value); applyModel(); });
   apikey.addEventListener("input", saveSettings);
   modelid.addEventListener("input", saveSettings);
-  applyModel();          // сразу показать состояние (по Claude), пока грузится список
-  loadFreeModels();      // затем подтянуть живые бесплатные модели
+  addPuterGroup();       // модели без ключа — сразу, наверх
+  const savedM = lsGet("wbtech_model");
+  modelSel.value = (savedM && modelSel.querySelector('option[value="' + CSS.escape(savedM) + '"]'))
+    ? savedM : "pu:anthropic/claude-sonnet-5";   // по умолчанию — без ключа
+  applyModel();
+  loadFreeModels();      // подтянуть OpenRouter-модели для варианта «свой ключ»
   const statusEl = document.getElementById("status");
   const bootbar = document.getElementById("bootbar");
   const bootfill = bootbar.querySelector("i");
