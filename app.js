@@ -163,10 +163,11 @@
         trb.className = "thumbs";
         const td = trb.insertCell(); td.colSpan = 3;
         const ba = document.createElement("div"); ba.className = "ba";
-        if (r.before) ba.appendChild(thumb(r.before, "исходный слайд"));
+        const open = () => openLightbox(r.slide, r.before, r.after);
+        if (r.before) ba.appendChild(thumb(r.before, "исходный слайд", open));
         const arr = document.createElement("span"); arr.className = "arrow"; arr.textContent = "→";
         ba.appendChild(arr);
-        if (r.after) ba.appendChild(thumb(r.after, "по дизайн-коду"));
+        if (r.after) ba.appendChild(thumb(r.after, "по дизайн-коду", open));
         td.appendChild(ba);
         tr._thumbs = trb;      // удаляем/возвращаем вместе с комментарием
       }
@@ -177,13 +178,52 @@
     return t;
   }
 
-  function thumb(svgString, caption) {
+  function thumb(svgString, caption, onOpen) {
     const fig = document.createElement("figure"); fig.className = "thumb";
     const box = document.createElement("div"); box.className = "thumb-svg";
     box.innerHTML = svgString;                       // наш собственный SVG, безопасно
     const cap = document.createElement("figcaption"); cap.textContent = caption;
     fig.append(box, cap);
+    if (onOpen) {
+      fig.classList.add("zoom");
+      fig.title = "Нажмите, чтобы увеличить";
+      fig.tabIndex = 0; fig.setAttribute("role", "button");
+      fig.addEventListener("click", onOpen);
+      fig.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } });
+    }
     return fig;
+  }
+
+  // ---- лайтбокс: крупное до/после, где текст читается ----
+  let lb = null;
+  function openLightbox(slideNo, beforeSVG, afterSVG) {
+    closeLightbox();
+    lb = document.createElement("div"); lb.className = "lb";
+    const inner = document.createElement("div"); inner.className = "lb-inner";
+    const head = document.createElement("div"); head.className = "lb-head";
+    head.innerHTML = "<span>Слайд " + slideNo + " — до и после</span>";
+    const x = document.createElement("button"); x.className = "lb-close"; x.type = "button";
+    x.textContent = "✕"; x.title = "Закрыть (Esc)";
+    x.addEventListener("click", closeLightbox);
+    head.appendChild(x);
+    const grid = document.createElement("div"); grid.className = "lb-grid";
+    if (beforeSVG) grid.appendChild(bigThumb(beforeSVG, "Исходный слайд"));
+    if (afterSVG) grid.appendChild(bigThumb(afterSVG, "По дизайн-коду"));
+    inner.append(head, grid);
+    lb.appendChild(inner);
+    lb.addEventListener("click", (e) => { if (e.target === lb) closeLightbox(); });
+    document.addEventListener("keydown", onLbKey);
+    document.body.appendChild(lb);
+  }
+  function bigThumb(svgString, caption) {
+    const fig = document.createElement("figure"); fig.className = "lb-fig";
+    const box = document.createElement("div"); box.className = "thumb-svg"; box.innerHTML = svgString;
+    const cap = document.createElement("figcaption"); cap.textContent = caption;
+    fig.append(box, cap); return fig;
+  }
+  function onLbKey(e) { if (e.key === "Escape") closeLightbox(); }
+  function closeLightbox() {
+    if (lb) { lb.remove(); lb = null; document.removeEventListener("keydown", onLbKey); }
   }
 
   // Держим раскрытым только самый верхний блок замечаний в списке результатов.

@@ -699,9 +699,16 @@ def _thumb_datauri(pkg, media_path, cache):
         return cache[media_path]
     uri = None
     try:
-        im = Image.open(io.BytesIO(pkg.files[media_path])).convert("RGB")
-        im.thumbnail((320, 320))
-        buf = io.BytesIO(); im.save(buf, "JPEG", quality=58)
+        im = Image.open(io.BytesIO(pkg.files[media_path]))
+        # прозрачный фон (формулы/иконки PNG) кладём на БЕЛЫЙ, а не на чёрный
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            flat = Image.new("RGBA", im.size, (255, 255, 255, 255))
+            im = Image.alpha_composite(flat, im).convert("RGB")
+        else:
+            im = im.convert("RGB")
+        im.thumbnail((640, 640))     # покрупнее — чтобы детали читались в лайтбоксе
+        buf = io.BytesIO(); im.save(buf, "JPEG", quality=62)
         uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
     except Exception:
         uri = None
