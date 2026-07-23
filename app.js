@@ -4,134 +4,58 @@
   const MAX_FILES = 15;
   const drop = document.getElementById("drop");
   const picker = document.getElementById("picker");
-  const modelSel = document.getElementById("model");
   const apikey = document.getElementById("apikey");
   const modelid = document.getElementById("modelid");
   const keystate = document.getElementById("keystate");
-  const keylabel = document.getElementById("keylabel");
-  const keyhelp = document.getElementById("keyhelp");
+  const clearkey = document.getElementById("clearkey");
 
-  // ---- модели/провайдеры (ключ нужен для всех; хранится только локально) ----
-  // Значение опции: "an:<id>" — Anthropic, "or:<slug>" — OpenRouter.
-  // Список бесплатных моделей подгружается ЖИВЫМ из OpenRouter (слоги меняются еженедельно).
-  const KEY_HELP = {
-    openrouter: 'Ключ OpenRouter (бесплатно): <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> → войдите → Create key. Начинается с <code>sk-or-</code>. Выбранные модели помечены как бесплатные и не списывают деньги (лимиты ~20 запросов/мин).',
-    anthropic:  'Ключ Anthropic (платно): <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → Settings → API keys</a> → Create key. Начинается с <code>sk-ant-</code>. Нужен аккаунт с пополненным балансом.',
-  };
-  const KEY_PH = { openrouter: "sk-or-...", anthropic: "sk-ant-..." };
-  const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
-  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  // ---- свой ключ (необязательно): провайдер определяется по ключу; хранится в sessionStorage
+  //      (стирается при закрытии вкладки) и уходит только напрямую к провайдеру. ----
+  const DEFAULT_MODEL = { anthropic: "claude-sonnet-5", openrouter: "anthropic/claude-sonnet-5" };
+  const ssGet = (k) => { try { return sessionStorage.getItem(k) || ""; } catch (e) { return ""; } };
+  const ssSet = (k, v) => { try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch (e) {} };
 
-  const keybox = document.getElementById("keybox");
-  // Модели Puter — работают БЕЗ ключа (User-Pays). Значение "pu:<slug>".
-  const PUTER_MODELS = [
-    ["anthropic/claude-sonnet-5", "Claude Sonnet 5 — без ключа (лучшее качество)"],
-    ["google/gemini-3.1-pro-preview", "Gemini 3.1 Pro — без ключа"],
-    ["openai/gpt-5.4-nano", "GPT-5.4 nano — без ключа (быстро)"],
-    ["x-ai/grok-4.5", "Grok 4.5 — без ключа"],
-  ];
-  function curModel() {
-    const v = modelSel.value || "pu:anthropic/claude-sonnet-5";
-    const provider = v.startsWith("pu:") ? "puter" : v.startsWith("an:") ? "anthropic" : "openrouter";
-    return { provider, keytype: provider, id: v.slice(3) };
-  }
-  function applyModel() {
-    const m = curModel();
-    if (m.provider === "puter") {
-      keybox.style.display = "none";
-      keystate.textContent = "Работает без ключа через Puter (при первом запуске — бесплатный вход в Puter).";
-      keystate.className = "hint on";
-      modelid.value = lsGet("wbtech_id_" + modelSel.value) || m.id;
-      return;
-    }
-    keybox.style.display = "";
-    apikey.value = lsGet("wbtech_key_" + m.keytype);
-    apikey.placeholder = KEY_PH[m.keytype];
-    modelid.value = lsGet("wbtech_id_" + modelSel.value) || m.id;
-    keyhelp.innerHTML = KEY_HELP[m.keytype];
-    updateKeyState();
-  }
-  function saveSettings() {
-    lsSet("wbtech_model", modelSel.value);
-    lsSet("wbtech_key_" + curModel().keytype, apikey.value.trim());
-    lsSet("wbtech_id_" + modelSel.value, modelid.value.trim());
-    updateKeyState();
+  function detectProvider(key) {
+    if (/^sk-ant-/i.test(key)) return "anthropic";
+    if (/^sk-or-/i.test(key)) return "openrouter";
+    return null;
   }
   function updateKeyState() {
-    if (apikey.value.trim()) {
-      keystate.textContent = "Ключ сохранён — режим ИИ (переверстка макетов).";
+    const key = apikey.value.trim();
+    if (!key) {
+      keystate.textContent = "Ключа нет — работает базовый режим (или Способ 1 без ключа).";
+      keystate.className = "hint";
+    } else if (detectProvider(key) === "anthropic") {
+      keystate.textContent = "Ключ распознан: Anthropic. Режим ИИ включён.";
+      keystate.className = "hint on";
+    } else if (detectProvider(key) === "openrouter") {
+      keystate.textContent = "Ключ распознан: OpenRouter. Режим ИИ включён.";
       keystate.className = "hint on";
     } else {
-      keystate.textContent = "Без ключа — базовый режим (перенос с фирменным оформлением).";
-      keystate.className = "hint";
+      keystate.textContent = "Не похоже на ключ Anthropic (sk-ant-…) или OpenRouter (sk-or-…). Из браузера работают только они.";
+      keystate.className = "hint warn";
     }
+  }
+  function saveSettings() {
+    ssSet("wbtech_key", apikey.value.trim());
+    ssSet("wbtech_modelid", modelid.value.trim());
+    updateKeyState();
   }
   function getOpts() {
-    const m = curModel();
-    return { provider: m.provider, key: apikey.value.trim(), model: modelid.value.trim() || m.id };
+    const key = apikey.value.trim();
+    const provider = detectProvider(key);
+    const model = modelid.value.trim() || (provider ? DEFAULT_MODEL[provider] : "");
+    return { provider, key, model };
   }
-
-  // Группа Puter (без ключа) — добавляется сразу, наверх списка.
-  function addPuterGroup() {
-    if (modelSel.querySelector('optgroup[label="Без ключа (Puter)"]')) return;
-    const g = document.createElement("optgroup"); g.label = "Без ключа (Puter)";
-    for (const [slug, label] of PUTER_MODELS) {
-      const o = document.createElement("option"); o.value = "pu:" + slug; o.textContent = label;
-      g.appendChild(o);
-    }
-    modelSel.insertBefore(g, modelSel.firstChild);
-  }
-
-  // Подтянуть актуальные бесплатные модели OpenRouter (публичный эндпоинт, ключ не нужен).
-  async function loadFreeModels() {
-    let free = [];
-    try {
-      const r = await fetch("https://openrouter.ai/api/v1/models");
-      const d = await r.json();
-      free = (d.data || []).filter((m) => {
-        const p = m.pricing || {};
-        return Number(p.prompt) === 0 && Number(p.completion) === 0;
-      });
-      // осмысленные для нашей задачи: инструктивные/чат, приличный контекст; вперёд Qwen
-      free = free.filter((m) => !/vision|image|tts|embed|guard|rerank/i.test(m.id));
-      free.sort((a, b) => {
-        const qa = /qwen/i.test(a.id) ? 0 : 1, qb = /qwen/i.test(b.id) ? 0 : 1;
-        if (qa !== qb) return qa - qb;
-        return (a.name || a.id).localeCompare(b.name || b.id);
-      });
-    } catch (e) { free = []; }
-
-    // убрать прежние динамические опции OpenRouter (Puter-группа и Claude остаются)
-    [...modelSel.querySelectorAll("option[data-free]")].forEach((n) => n.remove());
-    const oldg = modelSel.querySelector('optgroup[label="Свой ключ: бесплатные (OpenRouter)"]');
-    if (oldg) oldg.remove();
-    if (free.length) {
-      const g = document.createElement("optgroup"); g.label = "Свой ключ: бесплатные (OpenRouter)";
-      for (const m of free.slice(0, 30)) {
-        const o = document.createElement("option");
-        o.value = "or:" + m.id; o.textContent = (m.name || m.id) + " — свой ключ OpenRouter";
-        o.setAttribute("data-free", "1");
-        g.appendChild(o);
-      }
-      modelSel.appendChild(g);
-    }
-    // восстановить сохранённый выбор, если он ещё в списке
-    const saved = lsGet("wbtech_model");
-    if (saved && modelSel.querySelector('option[value="' + CSS.escape(saved) + '"]')) {
-      modelSel.value = saved;
-      applyModel();
-    }
-  }
-
-  modelSel.addEventListener("change", () => { lsSet("wbtech_model", modelSel.value); applyModel(); });
+  apikey.value = ssGet("wbtech_key");
+  modelid.value = ssGet("wbtech_modelid");
   apikey.addEventListener("input", saveSettings);
   modelid.addEventListener("input", saveSettings);
-  addPuterGroup();       // модели без ключа — сразу, наверх
-  const savedM = lsGet("wbtech_model");
-  modelSel.value = (savedM && modelSel.querySelector('option[value="' + CSS.escape(savedM) + '"]'))
-    ? savedM : "pu:anthropic/claude-sonnet-5";   // по умолчанию — без ключа
-  applyModel();
-  loadFreeModels();      // подтянуть OpenRouter-модели для варианта «свой ключ»
+  if (clearkey) clearkey.addEventListener("click", () => {
+    apikey.value = ""; ssSet("wbtech_key", ""); updateKeyState();
+  });
+  updateKeyState();
+
   const statusEl = document.getElementById("status");
   const bootbar = document.getElementById("bootbar");
   const bootfill = bootbar.querySelector("i");

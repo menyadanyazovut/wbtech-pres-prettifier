@@ -143,30 +143,11 @@ window.RestyleEngine = (function () {
 Для слайда, где есть картинки/формулы/код и мало структурированного текста → canvas.
 При сомнении → canvas. Верни ТОЛЬКО JSON-массив, без пояснений и без markdown-ограждений.`;
 
-  function puterText(resp) {
-    if (resp == null) return "";
-    if (typeof resp === "string") return resp;
-    const m = resp.message;
-    if (m) {
-      if (typeof m.content === "string") return m.content;
-      if (Array.isArray(m.content)) return m.content.map((c) => (c && c.text) || "").join("");
-    }
-    if (typeof resp.text === "string") return resp.text;
-    if (typeof resp.content === "string") return resp.content;
-    return String(resp);
-  }
-
   async function callLLM(slides, provider, model, key, say) {
     say && say("Нейросеть выбирает макеты и переписывает текст…");
     const userMsg = "Слайды исходной презентации:\n" + JSON.stringify(slides);
     let text;
-    if (provider === "puter") {
-      if (!window.puter || !window.puter.ai || !window.puter.ai.chat) {
-        throw new Error("Puter.js не загрузился — обновите страницу или проверьте, не блокирует ли расширение js.puter.com");
-      }
-      const resp = await window.puter.ai.chat(LAYOUT_SYSTEM + "\n\n" + userMsg, { model });
-      text = puterText(resp);
-    } else if (provider === "anthropic") {
+    if (provider === "anthropic") {
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -220,7 +201,7 @@ window.RestyleEngine = (function () {
     pyodide.FS.writeFile("input.pptx", new Uint8Array(arrayBuffer));
 
     let planJson = "null";
-    const useLLM = opts.provider === "puter" || !!opts.key;   // Puter не требует ключа
+    const useLLM = !!(opts.key && opts.provider);   // ИИ только при распознанном ключе
     if (useLLM) {
       const slidesJson = pyodide.runPython(
         "import engine, json; json.dumps(engine.extract_for_llm(open('input.pptx','rb').read()), ensure_ascii=False)"

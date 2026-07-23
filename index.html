@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Причесыватель презентаций — WB Техношкола</title>
+<!-- CSP: ограничивает, куда можно отправлять данные — чужой скрипт не сможет утащить ваш ключ
+     на посторонний домен. Разрешены только CDN движка, шрифты и API нейросетей. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com https://api.anthropic.com https://openrouter.ai">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -39,6 +42,18 @@
   .settings .adv > summary::-webkit-details-marker { display:none; }
   .settings .adv input { margin-top:6px; width:100%; }
   #keystate.on { color:#2CA66C; }
+  #keystate.warn { color:#C4003F; }
+  .ai-card { background:#fff; border:1px solid #dde5f2; border-radius:12px; padding:16px 18px; margin:12px 0; }
+  .ai-card > summary { cursor:pointer; font-weight:700; font-size:14px; list-style:none; }
+  .ai-card > summary::-webkit-details-marker { display:none; }
+  .ai-h { font-weight:700; font-size:14px; margin-bottom:6px; }
+  .ai-h .tag { display:inline-block; margin-left:8px; font-size:11px; font-weight:500; color:#2CA66C;
+               border:1px solid #b7e3cf; border-radius:20px; padding:2px 8px; vertical-align:middle; }
+  .krow { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:8px; }
+  .krow button { font-family:var(--mono); font-size:12px; color:var(--gray); background:#f2f5fb;
+                 border:1px solid #cdd8ea; border-radius:8px; padding:7px 12px; cursor:pointer; }
+  .krow button:hover { border-color:var(--pink); color:var(--pink); }
+  .sec { border-top:1px solid #eef2fa; margin-top:12px; padding-top:10px; }
 
   /* индикатор загрузки движка */
   #boot { margin:20px 0; }
@@ -117,29 +132,41 @@
   </div>
 
   <details class="settings" id="settings">
-    <summary>⚙ Нейросеть — для качества как в чате (необязательно)</summary>
+    <summary>⚙ Качество «как в чате» — через свой ИИ (необязательно)</summary>
     <div class="settings-body">
-      <p class="hint">С нейросетью инструмент подбирает фирменный макет под каждый слайд и
-        переписывает текст (плитки, колонки, «картинка + текст»). Без неё — базовый режим:
-        перенос содержимого с фирменным оформлением, без переверстки.<br>
-        <b>Модели «Без ключа (Puter)» работают сразу</b> — ничего вводить не нужно (при первом
-        запуске Puter один раз попросит бесплатный вход). Ниже — вариант со своим ключом, если
-        хотите свои лимиты.</p>
-      <label>Модель
-        <select id="model">
-          <option value="an:claude-sonnet-5">Claude Sonnet — свой ключ Anthropic</option>
-        </select>
-      </label>
-      <div id="keybox">
-        <label id="keylabel">Ключ
-          <input type="password" id="apikey" placeholder="..." autocomplete="off" spellcheck="false">
-        </label>
-        <p class="hint" id="keyhelp"></p>
+      <p class="hint">Базовый режим работает без всего — просто загрузите файл: контент
+        переносится с фирменным оформлением. Чтобы получить полноценную переверстку (плитки,
+        колонки, «картинка + текст») — подключите свой ИИ одним из двух способов.</p>
+
+      <div class="ai-card">
+        <div class="ai-h">Способ 1 — через своего ИИ-агента <span class="tag">безопасно, без ключей</span></div>
+        <p class="hint">Скачайте инструкцию и вставьте её в свой Claude / ChatGPT / Cursor
+          (ChatGPT → Custom Instructions; Claude → Settings → Capabilities → Skills → Add), затем
+          приложите презентацию — агент переверстает её в вашей среде. Ни ключи, ни файлы никуда
+          не уходят.</p>
+        <a class="dl" id="dlskill" href="wb-restyle-skill.md" download="wb-restyle-skill.md">Скачать инструкцию (SKILL.md)</a>
       </div>
-      <details class="adv"><summary>ID модели — если провайдер не знает модель, впишите точный</summary>
-        <input type="text" id="modelid" spellcheck="false">
+
+      <details class="ai-card">
+        <summary>Способ 2 — вставить свой API-ключ (для продвинутых)</summary>
+        <p class="hint">Сайт вызовет вашу модель напрямую из браузера. Из браузера работают ключи
+          <b>Anthropic</b> (<code>sk-ant-…</code>) и <b>OpenRouter</b> (<code>sk-or-…</code>) —
+          провайдер определяется по ключу автоматически.</p>
+        <label>API-ключ
+          <input type="password" id="apikey" placeholder="sk-ant-…  или  sk-or-…" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="krow">
+          <button type="button" id="clearkey">Очистить ключ</button>
+          <span class="hint" id="keystate"></span>
+        </div>
+        <details class="adv"><summary>ID модели (по умолчанию подставится)</summary>
+          <input type="text" id="modelid" spellcheck="false" placeholder="claude-sonnet-5 / anthropic/claude-sonnet-5">
+        </details>
+        <p class="hint sec"><b>Безопасность.</b> Ключ хранится только в этой вкладке и стирается
+          при её закрытии; уходит напрямую к провайдеру — на наши серверы он не попадает (их нет).
+          Совет: заведите ключ с ограниченным лимитом расходов, чтобы даже при утечке нельзя было
+          «сжечь» больше заданного. Максимальная безопасность — Способ 1 (вообще без ключа).</p>
       </details>
-      <span class="hint" id="keystate"></span>
     </div>
   </details>
 
@@ -155,7 +182,6 @@
     и обновляется независимо от этой страницы.</footer>
 </div>
 <div id="snacks"></div>
-<script src="https://js.puter.com/v2/"></script>
 <script src="engine/engine.js"></script>
 <script src="app.js"></script>
 </body>
