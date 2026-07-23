@@ -4,6 +4,41 @@
   const MAX_FILES = 15;
   const drop = document.getElementById("drop");
   const picker = document.getElementById("picker");
+  const apikey = document.getElementById("apikey");
+  const apimodel = document.getElementById("apimodel");
+  const keystate = document.getElementById("keystate");
+
+  // ---- настройки Claude API (хранятся только локально) ----
+  const K_KEY = "wbtech_claude_key", K_MODEL = "wbtech_claude_model", DEFAULT_MODEL = "claude-sonnet-5";
+  function loadSettings() {
+    try {
+      apikey.value = localStorage.getItem(K_KEY) || "";
+      apimodel.value = localStorage.getItem(K_MODEL) || DEFAULT_MODEL;
+    } catch (e) { apimodel.value = DEFAULT_MODEL; }
+    updateKeyState();
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem(K_KEY, apikey.value.trim());
+      localStorage.setItem(K_MODEL, apimodel.value.trim() || DEFAULT_MODEL);
+    } catch (e) {}
+    updateKeyState();
+  }
+  function updateKeyState() {
+    if (apikey.value.trim()) {
+      keystate.textContent = "Ключ сохранён — режим ИИ (переверстка макетов).";
+      keystate.className = "hint on";
+    } else {
+      keystate.textContent = "Без ключа — базовый режим (перенос с фирменным оформлением).";
+      keystate.className = "hint";
+    }
+  }
+  function getOpts() {
+    return { key: apikey.value.trim(), model: apimodel.value.trim() || DEFAULT_MODEL };
+  }
+  apikey.addEventListener("input", saveSettings);
+  apimodel.addEventListener("input", saveSettings);
+  loadSettings();
   const statusEl = document.getElementById("status");
   const bootbar = document.getElementById("bootbar");
   const bootfill = bootbar.querySelector("i");
@@ -69,7 +104,9 @@
         card.setBusy("Обрабатываю…");
         const buf = await f.arrayBuffer();
         const t0 = performance.now();
-        const { pptx, remarks } = await RestyleEngine.convert(buf);
+        const opts = getOpts();
+        opts.onStage = (msg) => card.setBusy(msg);
+        const { pptx, remarks } = await RestyleEngine.convert(buf, opts);
         const sec = ((performance.now() - t0) / 1000).toFixed(1);
         const blob = new Blob([pptx], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
         const a = document.createElement("a");

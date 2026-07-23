@@ -23,6 +23,18 @@
   .drop b { color:var(--pink); font-weight:700; }
   .drop small { display:block; margin-top:8px; font-size:13px; color:var(--gray); }
 
+  /* настройки Claude API */
+  .settings { margin:18px 0 0; }
+  .settings > summary { cursor:pointer; font-size:13px; color:var(--gray); user-select:none; list-style:none; }
+  .settings > summary::-webkit-details-marker { display:none; }
+  .settings-body { margin-top:12px; display:flex; flex-direction:column; gap:10px; max-width:560px; }
+  .settings label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; }
+  .settings input { font-family:var(--mono); font-size:13px; padding:9px 11px; border:1px solid #cdd8ea;
+                    border-radius:8px; background:#fff; color:var(--navy); }
+  .settings input:focus { outline:none; border-color:var(--pink); }
+  .settings .hint { font-size:12px; line-height:1.55; color:var(--gray); }
+  #keystate.on { color:#2CA66C; }
+
   /* индикатор загрузки движка */
   #boot { margin:20px 0; }
   #status { font-size:13px; color:var(--gray); min-height:20px; }
@@ -98,6 +110,23 @@
     <small>до 15 файлов .pptx</small>
     <input type="file" id="picker" accept=".pptx" multiple hidden>
   </div>
+
+  <details class="settings" id="settings">
+    <summary>⚙ Claude API — для качества как в чате (необязательно)</summary>
+    <div class="settings-body">
+      <p class="hint">С ключом инструмент подключает Claude: он подбирает фирменный макет под
+        каждый слайд и переписывает текст (плитки, колонки, «картинка + текст»). Без ключа —
+        базовый режим: перенос содержимого с фирменным оформлением, без переверстки. Ключ
+        хранится только в вашем браузере и уходит напрямую в Anthropic.</p>
+      <label>API-ключ (sk-ant-…)
+        <input type="password" id="apikey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+      </label>
+      <label>Модель
+        <input type="text" id="apimodel" placeholder="claude-sonnet-5" spellcheck="false">
+      </label>
+      <span class="hint" id="keystate"></span>
+    </div>
+  </details>
 
   <div id="boot">
     <div id="status">Готовлю движок…</div>

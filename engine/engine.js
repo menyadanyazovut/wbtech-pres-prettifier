@@ -114,15 +114,87 @@ window.RestyleEngine = (function () {
     return initPromise;
   }
 
-  async function convert(arrayBuffer) {
+  // ---- LLM-режим: Claude выбирает макет и переписывает текст (свой ключ) ----
+  const LAYOUT_SYSTEM =
+`Ты — редактор-верстальщик образовательных презентаций WB Техношколы. На входе — слайды
+исходной презентации преподавателя (массив с индексами, заголовками, текстами, числом
+картинок/таблиц). Твоя задача: для КАЖДОГО слайда выбрать фирменный макет и переписать
+содержимое в его слоты, СОХРАНЯЯ смысл и формулировки автора. Ничего не выдумывай и не
+добавляй фактов; можно только реструктурировать, разбить слипшийся текст на заголовок и
+описание, поправить очевидные опечатки и пробелы. Переводить не нужно.
+
+Доступные макеты (верни JSON-массив, по одному объекту на ВЫХОДНОЙ слайд, по порядку):
+- {"layout":"title","title":"...","subtitle":"...","number":"01"} — титул (обычно слайд 0).
+- {"layout":"tiles","title":"...","tiles":[{"head":"...","body":"..."}]} — 2–6 плиток для
+  набора «понятие → короткое пояснение». Идеально для списков определений/категорий.
+- {"layout":"img_cols","title":"...","src_slide":N,"columns":[{"head":"...","items":["...","..."]}]}
+  — когда на слайде ОДНА главная картинка и текст рядом. src_slide = индекс исходного
+  слайда, откуда взять картинку. 1–2 колонки.
+- {"layout":"text_cols","title":"...","left":[{"head":"...","body":"..."}],"right":[...]}
+  — две смысловые колонки текста (например «Regularizers» / «Reducers»).
+- {"layout":"big_text","title":"...","blocks":[{"head":"...","body":"..."}]} — 1–3 крупных
+  блока «подзаголовок + абзац».
+- {"layout":"canvas","src_slide":N} — ЗАПАСНОЙ: сложные схемы, формулы, скриншоты, код,
+  графики — всё, что нельзя аккуратно переверстать текстом. Переносим слайд как есть, но с
+  фирменным заголовком и оформлением. Формулы/диаграммы НЕ переписывай — используй canvas.
+- {"layout":"questions"} — слайд «Вопросы». {"layout":"thanks"} — «Спасибо».
+
+Правила: слайд 0 обычно → title. Если в конце нет «Вопросы»/«Спасибо» — можешь добавить их.
+Для слайда, где есть картинки/формулы/код и мало структурированного текста → canvas.
+При сомнении → canvas. Верни ТОЛЬКО JSON-массив, без пояснений и без markdown-ограждений.`;
+
+  async function callClaude(slides, key, model, say) {
+    say && say("ИИ выбирает макеты и переписывает текст…");
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: model || "claude-sonnet-5",
+        max_tokens: 8000,
+        system: LAYOUT_SYSTEM,
+        messages: [{ role: "user", content: "Слайды исходной презентации:\n" + JSON.stringify(slides) }],
+      }),
+    });
+    if (!resp.ok) {
+      let detail = ""; try { detail = (await resp.text()).slice(0, 300); } catch (e) {}
+      throw new Error("Claude API " + resp.status + (detail ? ": " + detail : ""));
+    }
+    const data = await resp.json();
+    let text = (data.content || []).map((c) => c.text || "").join("").trim();
+    const m = text.match(/\[[\s\S]*\]/);        // на случай обрамления текстом/фенсами
+    return JSON.parse(m ? m[0] : text);
+  }
+
+  async function convert(arrayBuffer, opts) {
     if (!pyodide) throw new Error("движок не инициализирован");
+    opts = opts || {};
+    const say = opts.onStage || null;
     pyodide.FS.writeFile("input.pptx", new Uint8Array(arrayBuffer));
+
+    let planJson = "null";
+    if (opts.key) {
+      const slidesJson = pyodide.runPython(
+        "import engine, json; json.dumps(engine.extract_for_llm(open('input.pptx','rb').read()), ensure_ascii=False)"
+      );
+      const slides = JSON.parse(slidesJson);
+      const plan = await callClaude(slides, opts.key, opts.model, say);
+      planJson = JSON.stringify(plan);
+    }
+    if (say) say("Собираю презентацию по дизайн-коду…");
+
+    pyodide.globals.set("_plan_json", planJson);
     pyodide.runPython(`
 import engine, json, traceback
 try:
     _tpl = open("assets/guidelines.pptx","rb").read()
     _src = open("input.pptx","rb").read()
-    _out, _remarks = engine.convert(_tpl, _src)
+    _plan = json.loads(_plan_json) if _plan_json and _plan_json != "null" else None
+    _out, _remarks = engine.convert(_tpl, _src, plan=_plan)
     open("output.pptx","wb").write(_out)
     _remarks_json = json.dumps(_remarks, ensure_ascii=False)
     _error = ""

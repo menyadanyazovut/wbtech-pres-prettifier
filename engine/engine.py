@@ -688,7 +688,241 @@ def _merge_table_styles(tpl, src):
     for s in sroot.findall(f"{{{A}}}tblStyle"):
         if s.get("styleId") not in have: droot.append(copy.deepcopy(s))
 
-def convert(template_bytes, src_bytes, subtitle="WB Техношкола"):
+# ============================================================
+# LLM-режим: макет и содержимое выбирает Claude (свой ключ в браузере).
+# План приходит из JS; движок лишь рендерит его в фирменные доноры.
+# ============================================================
+DONOR_BY_TAG = {"title": 37, "tiles": 87, "img_cols": 68, "text_cols": 51,
+                "big_text": 48, "canvas": 16, "questions": 21, "thanks": 106}
+
+def build_paras(pkg, dst, sp, specs):
+    """specs: {text,bold,sz,link,spcAft} ИЛИ {head,body,hsz,bsz,link} (донор с head+br+body)."""
+    tx = sp.find(q("p:txBody"))
+    donor_paras = tx.findall(q("a:p"))
+    if not donor_paras:
+        return
+    for p in donor_paras:
+        tx.remove(p)
+    for s in specs:
+        p = copy.deepcopy(donor_paras[min(s.get("tpl", 0), len(donor_paras) - 1)])
+        if "head" in s:
+            runs = p.findall(q("a:r"))
+            if len(runs) >= 2:
+                runs[0].find(q("a:t")).text = typograf(s["head"])
+                runs[-1].find(q("a:t")).text = typograf(s.get("body", ""))
+                for r in runs[1:-1]:
+                    p.remove(r)
+                for i, r in enumerate((runs[0], runs[-1])):
+                    rpr = r.find(q("a:rPr")); key = "hsz" if i == 0 else "bsz"
+                    if rpr is not None and s.get(key):
+                        rpr.set("sz", str(s[key]))
+            tx.append(p); continue
+        set_run_text(p, s.get("text", ""))
+        r0 = p.find(q("a:r"))
+        rpr = r0.find(q("a:rPr"))
+        if rpr is None:
+            rpr = etree.SubElement(r0, q("a:rPr")); r0.insert(0, rpr)
+        if s.get("bold"):
+            rpr.set("b", "1")
+        if s.get("sz"):
+            for r in p.iter(q("a:rPr")):
+                r.set("sz", str(s["sz"]))
+            epr = p.find(q("a:endParaRPr"))
+            if epr is not None:
+                epr.set("sz", str(s["sz"]))
+        if s.get("link"):
+            rid = add_rel(pkg, dst, LNK_T, s["link"], external=True)
+            for old in rpr.findall(q("a:hlinkClick")):
+                rpr.remove(old)
+            hl = etree.SubElement(rpr, q("a:hlinkClick")); hl.set(q("r:id"), rid)
+        if s.get("spcAft") is not None:
+            for spa in p.findall(f"{q('a:pPr')}/{q('a:spcAft')}/{q('a:spcPts')}"):
+                spa.set("val", str(s["spcAft"]))
+        tx.append(p)
+
+def _insert_src_image(pkg, dst, src, src_path, root, slot):
+    """Перенести самую крупную картинку исходного слайда в слот донора (contain-fit)."""
+    if not src_path or src_path not in src.files:
+        return
+    sroot = src.tree(src_path).getroot()
+    rp = rels_path(src_path)
+    srels = {r.get("Id"): (r.get("Target"), r.get("TargetMode"))
+             for r in src.tree(rp).getroot()} if rp in src.files else {}
+    best = None
+    for pic in sroot.iter(q("p:pic")):
+        b = _box(pic)
+        if b is None:
+            continue
+        area = b[2] * b[3]
+        if best is None or area > best[0]:
+            best = (area, pic)
+    if not best:
+        return
+    blip = best[1].find(f"{q('p:blipFill')}/{q('a:blip')}")
+    rid = blip.get(q("r:embed")) if blip is not None else None
+    if rid not in srels or srels[rid][1] == "External":
+        return
+    tgt = posixpath.normpath(posixpath.join(posixpath.dirname(src_path), srels[rid][0]))
+    if tgt not in src.files:
+        return
+    dname = "u_" + posixpath.basename(tgt)
+    pkg.files[f"ppt/media/{dname}"] = src.files[tgt]
+    _ensure_ct_default(pkg, dname.rsplit(".", 1)[-1])
+    newrid = add_rel(pkg, dst, IMG_T, f"../media/{dname}")
+    iw, ih = slot[2], slot[3]
+    if HAS_CARDS:
+        try:
+            iw, ih = Image.open(io.BytesIO(src.files[tgt])).size
+        except Exception:
+            pass
+    pad = 60000
+    sx, sy, scx, scy = slot[0] + pad, slot[1] + pad, slot[2] - 2 * pad, slot[3] - 2 * pad
+    k = min(scx / iw, scy / ih)
+    w2, h2 = int(iw * k), int(ih * k)
+    x = sx + (scx - w2) // 2
+    y = sy + (scy - h2) // 2
+    root.find(f"{q('p:cSld')}/{q('p:spTree')}").append(make_pic(newrid, x, y, w2, h2))
+
+def fill_tiles(root, title, tiles):
+    set_title(root, title)
+    heads = [t.get("head", "") for t in tiles]
+    bodies = [t.get("body", "") for t in tiles]
+    ih = ib = 0
+    for t in root.iter(q("a:t")):
+        if t.text and "Заголовок плитки" in t.text:
+            t.text = typograf(heads[ih]) if ih < len(heads) else ""; ih += 1
+        elif t.text and "Поставьте на слайд QR" in t.text:
+            t.text = typograf(bodies[ib]) if ib < len(bodies) else ""; ib += 1
+    for t in root.iter(q("a:t")):
+        if t.text and ("вышлите вторую версию" in t.text or "которой будет информация" in t.text):
+            t.text = ""
+
+def fill_img_cols(pkg, dst, root, src, src_path, title, columns):
+    set_title(root, title)
+    cols = [sp for sp in root.iter(q("p:sp")) if "Изучить рекомендации" in texts_of(sp)]
+    cols.sort(key=lambda s: (_box(s) or [0])[0])
+    for ci, col in enumerate(cols):
+        if ci < len(columns):
+            c = columns[ci]
+            specs = [{"text": c.get("head", ""), "bold": True, "sz": 1200, "spcAft": 300}]
+            for it in c.get("items", []):
+                specs.append({"text": it, "sz": 1200, "spcAft": 300})
+            build_paras(pkg, dst, col, specs)
+        else:
+            build_paras(pkg, dst, col, [{"text": "", "sz": 1200}])
+    slot = [sp for sp in root.iter(q("p:sp"))
+            if not texts_of(sp).strip() and _box(sp) and _box(sp)[2] > 3000000]
+    if slot:
+        _insert_src_image(pkg, dst, src, src_path, root, _box(slot[0]))
+
+def fill_text_cols(pkg, dst, root, title, left, right):
+    set_title(root, title)
+    cols = [sp for sp in root.iter(q("p:sp"))
+            if "Что делать" in texts_of(sp) or "Как передать" in texts_of(sp)]
+    cols.sort(key=lambda s: (_box(s) or [0])[0])
+    def specs(items):
+        return [{"head": x.get("head", ""), "body": x.get("body", ""),
+                 "hsz": 1200, "bsz": 1100, "link": x.get("link")} for x in items]
+    if len(cols) >= 1 and left:
+        build_paras(pkg, dst, cols[0], specs(left))
+    if len(cols) >= 2 and right:
+        build_paras(pkg, dst, cols[1], specs(right))
+
+def fill_big_text(pkg, dst, root, title, blocks):
+    set_title(root, title)
+    sp = [s for s in root.iter(q("p:sp")) if "Как передать" in texts_of(s)]
+    if sp and blocks:
+        build_paras(pkg, dst, sp[0],
+                    [{"head": x.get("head", ""), "body": x.get("body", ""), "hsz": 1300, "bsz": 1200}
+                     for x in blocks])
+
+def extract_for_llm(src_bytes):
+    """Компактная сводка по слайдам для LLM: заголовок, тексты, счётчики картинок/таблиц."""
+    src = Package.from_bytes(src_bytes)
+    out = []
+    for i, p in enumerate(_slide_order(src)):
+        inf = _slide_info(src, p)
+        out.append({"index": i, "title": inf["title"] or "", "texts": inf["texts"][:40],
+                    "n_images": inf["npics"], "n_tables": inf["ntables"], "n_shapes": inf["nshapes"]})
+    return out
+
+def convert_with_plan(template_bytes, src_bytes, plan):
+    tpl = Package.from_bytes(template_bytes)
+    src = Package.from_bytes(src_bytes)
+    order = _slide_order(src)
+    remarks = []
+    existing = [int(m.group(1)) for f in tpl.files
+                if (m := re.match(r"ppt/slides/slide(\d+)\.xml$", f))]
+    next_n = max(existing) + 1
+    made = []
+    for entry in plan:
+        tag = entry.get("layout", "canvas")
+        donor = DONOR_BY_TAG.get(tag, DONOR_BY_TAG["canvas"])
+        dst, rid = _dup_slide(tpl, donor, next_n); made.append((dst, rid, entry)); next_n += 1
+    pres = tpl.tree("ppt/presentation.xml").getroot()
+    lst = pres.find(q("p:sldIdLst"))
+    for el in list(lst): lst.remove(el)
+    for i, (_, rid, _) in enumerate(made):
+        el = etree.SubElement(lst, q("p:sldId")); el.set("id", str(400 + i)); el.set(q("r:id"), rid)
+    prels = tpl.tree("ppt/_rels/presentation.xml.rels").getroot()
+    keep = {rid for _, rid, _ in made}
+    for rel in list(prels):
+        if rel.get("Type") == SLIDE_T and rel.get("Id") not in keep: prels.remove(rel)
+    ct = tpl.tree("[Content_Types].xml").getroot()
+    keep_parts = {f"/{dst}" for dst, _, _ in made}
+    for o in list(ct.findall(f"{{{CTNS}}}Override")):
+        pn = o.get("PartName", "")
+        if (pn.startswith("/ppt/slides/") or pn.startswith("/ppt/notesSlides/")) and pn not in keep_parts:
+            ct.remove(o)
+    for n in existing:
+        tpl.drop(f"ppt/slides/slide{n}.xml"); tpl.drop(f"ppt/slides/_rels/slide{n}.xml.rels")
+    for f in [f for f in tpl.files if f.startswith("ppt/notesSlides/")]:
+        tpl.drop(f)
+
+    for out_no, (dst, rid, entry) in enumerate(made, 1):
+        root = tpl.tree(dst).getroot()
+        tag = entry.get("layout", "canvas")
+        title = entry.get("title", "")
+        try:
+            if tag == "title":
+                sp = find_sp(root, "Это слайд с названием")
+                if sp is not None: set_single_text(sp, title or "Название лекции")
+                sp = find_sp(root, "Тут имя лектора")
+                if sp is not None: set_single_text(sp, entry.get("subtitle", "") or "")
+                sp = find_sp(root, "24")
+                if sp is not None: set_single_text(sp, str(entry.get("number", "01")))
+            elif tag == "tiles":
+                fill_tiles(root, title, entry.get("tiles", []))
+            elif tag == "img_cols":
+                si = entry.get("src_slide")
+                sp = order[si] if (isinstance(si, int) and 0 <= si < len(order)) else None
+                fill_img_cols(tpl, dst, root, src, sp, title, entry.get("columns", []))
+            elif tag == "text_cols":
+                fill_text_cols(tpl, dst, root, title, entry.get("left", []), entry.get("right", []))
+            elif tag == "big_text":
+                fill_big_text(tpl, dst, root, title, entry.get("blocks", []))
+            elif tag == "canvas":
+                si = entry.get("src_slide")
+                if isinstance(si, int) and 0 <= si < len(order):
+                    spath = order[si]; inf = _slide_info(src, spath)
+                    t = inf["title"]
+                    tb = set_title(root, t) if t else 761700
+                    if not t:
+                        th = find_sp(root, "Теория")
+                        if th is not None: th.getparent().remove(th)
+                    body = find_sp(root, "Концентрированная")
+                    if body is not None: body.getparent().remove(body)
+                    transplant(tpl, dst, src, spath, tb, remarks, out_no)
+        except Exception as e:
+            remarks.append({"slide": out_no, "action": "слайд собран упрощённо",
+                            "comment": "макет «%s» не удалось заполнить: %s" % (tag, str(e)[:60])})
+    _merge_table_styles(tpl, src)
+    return tpl.to_bytes(), remarks
+
+
+def convert(template_bytes, src_bytes, subtitle="WB Техношкола", plan=None):
+    if plan:
+        return convert_with_plan(template_bytes, src_bytes, plan)
     tpl = Package.from_bytes(template_bytes)
     src = Package.from_bytes(src_bytes)
     remarks = []
