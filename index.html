@@ -65,34 +65,6 @@
   .resolve:hover { color:#2CA66C; }
   .resolve svg { width:16px; height:16px; display:block; }
 
-  /* превью до/после под комментарием */
-  tr.thumbs td { padding:4px 0 16px; border-bottom:1px solid #eef2fa; }
-  .ba { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
-  .ba .arrow { color:var(--pink); font-size:22px; font-weight:700; line-height:1; }
-  .thumb { margin:0; width:min(300px,44vw); }
-  .thumb.zoom { cursor:zoom-in; }
-  .thumb.zoom .thumb-svg { transition:border-color .15s, box-shadow .15s; }
-  .thumb.zoom:hover .thumb-svg { border-color:var(--pink); box-shadow:0 2px 10px rgba(255,6,126,.18); }
-  .thumb-svg { border:1px solid #dde5f2; border-radius:6px; overflow:hidden; background:#fff; line-height:0; }
-  .thumb-svg svg { width:100%; height:auto; display:block; }
-  .thumb figcaption { margin-top:5px; font-size:11px; color:var(--gray); }
-
-  /* лайтбокс: крупное до/после */
-  .lb { position:fixed; inset:0; z-index:100; background:rgba(8,0,64,.72);
-        display:flex; align-items:center; justify-content:center; padding:24px;
-        animation:lb-fade .18s ease; }
-  @keyframes lb-fade { from{opacity:0} to{opacity:1} }
-  .lb-inner { background:#fff; border-radius:14px; padding:18px 20px 22px; max-width:96vw; max-height:92vh; overflow:auto; }
-  .lb-head { display:flex; align-items:center; justify-content:space-between; gap:20px;
-             font-weight:700; font-size:14px; margin-bottom:14px; }
-  .lb-close { font-family:var(--mono); font-size:18px; line-height:1; color:var(--gray);
-              background:none; border:none; cursor:pointer; padding:4px 8px; border-radius:6px; }
-  .lb-close:hover { color:var(--pink); background:#f4ecf3; }
-  .lb-grid { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; }
-  .lb-fig { margin:0; }
-  .lb-fig .thumb-svg { width:min(820px,92vw); border:1px solid #dde5f2; border-radius:8px; }
-  .lb-fig figcaption { margin-top:8px; font-size:12px; color:var(--gray); text-align:center; }
-
   /* snackbar-стек: правый нижний угол, не более трёх */
   #snacks { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column;
             gap:10px; z-index:50; }

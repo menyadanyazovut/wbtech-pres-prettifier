@@ -157,73 +157,11 @@
       n.append(num, btn);
       tr.insertCell().textContent = r.action;
       tr.insertCell().textContent = r.comment || "";
-      // превью до/после под комментарием (если движок их приложил)
-      if (r.before || r.after) {
-        const trb = t.insertRow();
-        trb.className = "thumbs";
-        const td = trb.insertCell(); td.colSpan = 3;
-        const ba = document.createElement("div"); ba.className = "ba";
-        const open = () => openLightbox(r.slide, r.before, r.after);
-        if (r.before) ba.appendChild(thumb(r.before, "исходный слайд", open));
-        const arr = document.createElement("span"); arr.className = "arrow"; arr.textContent = "→";
-        ba.appendChild(arr);
-        if (r.after) ba.appendChild(thumb(r.after, "по дизайн-коду", open));
-        td.appendChild(ba);
-        tr._thumbs = trb;      // удаляем/возвращаем вместе с комментарием
-      }
       const fire = () => resolveRow(tr, refreshCount);
       btn.addEventListener("click", fire);
       btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire(); } });
     }
     return t;
-  }
-
-  function thumb(svgString, caption, onOpen) {
-    const fig = document.createElement("figure"); fig.className = "thumb";
-    const box = document.createElement("div"); box.className = "thumb-svg";
-    box.innerHTML = svgString;                       // наш собственный SVG, безопасно
-    const cap = document.createElement("figcaption"); cap.textContent = caption;
-    fig.append(box, cap);
-    if (onOpen) {
-      fig.classList.add("zoom");
-      fig.title = "Нажмите, чтобы увеличить";
-      fig.tabIndex = 0; fig.setAttribute("role", "button");
-      fig.addEventListener("click", onOpen);
-      fig.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } });
-    }
-    return fig;
-  }
-
-  // ---- лайтбокс: крупное до/после, где текст читается ----
-  let lb = null;
-  function openLightbox(slideNo, beforeSVG, afterSVG) {
-    closeLightbox();
-    lb = document.createElement("div"); lb.className = "lb";
-    const inner = document.createElement("div"); inner.className = "lb-inner";
-    const head = document.createElement("div"); head.className = "lb-head";
-    head.innerHTML = "<span>Слайд " + slideNo + " — до и после</span>";
-    const x = document.createElement("button"); x.className = "lb-close"; x.type = "button";
-    x.textContent = "✕"; x.title = "Закрыть (Esc)";
-    x.addEventListener("click", closeLightbox);
-    head.appendChild(x);
-    const grid = document.createElement("div"); grid.className = "lb-grid";
-    if (beforeSVG) grid.appendChild(bigThumb(beforeSVG, "Исходный слайд"));
-    if (afterSVG) grid.appendChild(bigThumb(afterSVG, "По дизайн-коду"));
-    inner.append(head, grid);
-    lb.appendChild(inner);
-    lb.addEventListener("click", (e) => { if (e.target === lb) closeLightbox(); });
-    document.addEventListener("keydown", onLbKey);
-    document.body.appendChild(lb);
-  }
-  function bigThumb(svgString, caption) {
-    const fig = document.createElement("figure"); fig.className = "lb-fig";
-    const box = document.createElement("div"); box.className = "thumb-svg"; box.innerHTML = svgString;
-    const cap = document.createElement("figcaption"); cap.textContent = caption;
-    fig.append(box, cap); return fig;
-  }
-  function onLbKey(e) { if (e.key === "Escape") closeLightbox(); }
-  function closeLightbox() {
-    if (lb) { lb.remove(); lb = null; document.removeEventListener("keydown", onLbKey); }
   }
 
   // Держим раскрытым только самый верхний блок замечаний в списке результатов.
@@ -232,18 +170,15 @@
     blocks.forEach((d, i) => { d.open = (i === 0); });
   }
 
-  // Удалить строку замечания (и её превью) с возможностью отмены через snackbar.
+  // Удалить строку замечания с возможностью отмены через snackbar.
   function resolveRow(tr, refreshCount) {
     const table = tr.parentNode;
-    const thumbs = tr._thumbs || null;
-    const anchor = (thumbs || tr).nextSibling;     // куда вернуть при отмене
-    if (thumbs) table.removeChild(thumbs);
+    const anchor = tr.nextSibling;                 // куда вернуть при отмене
     table.removeChild(tr);
     if (refreshCount) refreshCount();
     showSnack("Комментарий удалён", () => {
       const ref = (anchor && anchor.parentNode === table) ? anchor : null;
       table.insertBefore(tr, ref);
-      if (thumbs) table.insertBefore(thumbs, ref);
       if (refreshCount) refreshCount();
     });
   }
