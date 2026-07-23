@@ -29,10 +29,15 @@
   .settings > summary::-webkit-details-marker { display:none; }
   .settings-body { margin-top:12px; display:flex; flex-direction:column; gap:10px; max-width:560px; }
   .settings label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; }
-  .settings input { font-family:var(--mono); font-size:13px; padding:9px 11px; border:1px solid #cdd8ea;
-                    border-radius:8px; background:#fff; color:var(--navy); }
-  .settings input:focus { outline:none; border-color:var(--pink); }
+  .settings input, .settings select { font-family:var(--mono); font-size:13px; padding:9px 11px;
+                    border:1px solid #cdd8ea; border-radius:8px; background:#fff; color:var(--navy); }
+  .settings input:focus, .settings select:focus { outline:none; border-color:var(--pink); }
   .settings .hint { font-size:12px; line-height:1.55; color:var(--gray); }
+  .settings a { color:var(--pink); }
+  .settings .adv { margin:2px 0; }
+  .settings .adv > summary { cursor:pointer; font-size:12px; color:var(--gray); list-style:none; }
+  .settings .adv > summary::-webkit-details-marker { display:none; }
+  .settings .adv input { margin-top:6px; width:100%; }
   #keystate.on { color:#2CA66C; }
 
   /* индикатор загрузки движка */
@@ -112,18 +117,28 @@
   </div>
 
   <details class="settings" id="settings">
-    <summary>⚙ Claude API — для качества как в чате (необязательно)</summary>
+    <summary>⚙ Нейросеть — для качества как в чате (необязательно)</summary>
     <div class="settings-body">
-      <p class="hint">С ключом инструмент подключает Claude: он подбирает фирменный макет под
-        каждый слайд и переписывает текст (плитки, колонки, «картинка + текст»). Без ключа —
-        базовый режим: перенос содержимого с фирменным оформлением, без переверстки. Ключ
-        хранится только в вашем браузере и уходит напрямую в Anthropic.</p>
-      <label>API-ключ (sk-ant-…)
-        <input type="password" id="apikey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-      </label>
+      <p class="hint">С нейросетью инструмент подбирает фирменный макет под каждый слайд и
+        переписывает текст (плитки, колонки, «картинка + текст»). Без неё — базовый режим:
+        перенос содержимого с фирменным оформлением, без переверстки.
+        <b>Ключ нужен для любой модели</b> — бесплатных «без ключа» не бывает; для DeepSeek и
+        Qwen ключ бесплатный. Ключ хранится только в вашем браузере и уходит напрямую к
+        провайдеру.</p>
       <label>Модель
-        <input type="text" id="apimodel" placeholder="claude-sonnet-5" spellcheck="false">
+        <select id="model">
+          <option value="deepseek">DeepSeek R1 — бесплатно (ключ OpenRouter)</option>
+          <option value="qwen">Qwen — бесплатно (ключ OpenRouter)</option>
+          <option value="claude">Claude Sonnet — платно (ключ Anthropic)</option>
+        </select>
       </label>
+      <label id="keylabel">Ключ
+        <input type="password" id="apikey" placeholder="..." autocomplete="off" spellcheck="false">
+      </label>
+      <p class="hint" id="keyhelp"></p>
+      <details class="adv"><summary>ID модели — если провайдер не знает модель, впишите точный</summary>
+        <input type="text" id="modelid" spellcheck="false">
+      </details>
       <span class="hint" id="keystate"></span>
     </div>
   </details>

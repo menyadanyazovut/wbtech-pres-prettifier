@@ -4,24 +4,46 @@
   const MAX_FILES = 15;
   const drop = document.getElementById("drop");
   const picker = document.getElementById("picker");
+  const modelSel = document.getElementById("model");
   const apikey = document.getElementById("apikey");
-  const apimodel = document.getElementById("apimodel");
+  const modelid = document.getElementById("modelid");
   const keystate = document.getElementById("keystate");
+  const keylabel = document.getElementById("keylabel");
+  const keyhelp = document.getElementById("keyhelp");
 
-  // ---- настройки Claude API (хранятся только локально) ----
-  const K_KEY = "wbtech_claude_key", K_MODEL = "wbtech_claude_model", DEFAULT_MODEL = "claude-sonnet-5";
+  // ---- модели/провайдеры (ключ нужен для всех; хранится только локально) ----
+  const MODELS = {
+    deepseek: { provider: "openrouter", id: "deepseek/deepseek-r1:free", keytype: "openrouter" },
+    qwen:     { provider: "openrouter", id: "qwen/qwen3-235b-a22b:free", keytype: "openrouter" },
+    claude:   { provider: "anthropic",  id: "claude-sonnet-5",           keytype: "anthropic" },
+  };
+  const KEY_HELP = {
+    openrouter: 'Ключ OpenRouter (бесплатно): <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> → войдите → Create key. Начинается с <code>sk-or-</code>. Бесплатные модели помечены <code>:free</code> и не списывают деньги.',
+    anthropic:  'Ключ Anthropic (платно): <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → Settings → API keys</a> → Create key. Начинается с <code>sk-ant-</code>. Нужен аккаунт с пополненным балансом.',
+  };
+  const KEY_PH = { openrouter: "sk-or-...", anthropic: "sk-ant-..." };
+  const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+  function curModel() { return MODELS[modelSel.value] || MODELS.deepseek; }
+
   function loadSettings() {
-    try {
-      apikey.value = localStorage.getItem(K_KEY) || "";
-      apimodel.value = localStorage.getItem(K_MODEL) || DEFAULT_MODEL;
-    } catch (e) { apimodel.value = DEFAULT_MODEL; }
+    modelSel.value = lsGet("wbtech_model") || "deepseek";
+    if (!MODELS[modelSel.value]) modelSel.value = "deepseek";
+    applyModel();
+  }
+  function applyModel() {
+    const m = curModel();
+    apikey.value = lsGet("wbtech_key_" + m.keytype);
+    apikey.placeholder = KEY_PH[m.keytype];
+    modelid.value = lsGet("wbtech_id_" + modelSel.value) || m.id;
+    keyhelp.innerHTML = KEY_HELP[m.keytype];
     updateKeyState();
   }
   function saveSettings() {
-    try {
-      localStorage.setItem(K_KEY, apikey.value.trim());
-      localStorage.setItem(K_MODEL, apimodel.value.trim() || DEFAULT_MODEL);
-    } catch (e) {}
+    lsSet("wbtech_model", modelSel.value);
+    lsSet("wbtech_key_" + curModel().keytype, apikey.value.trim());
+    lsSet("wbtech_id_" + modelSel.value, modelid.value.trim());
     updateKeyState();
   }
   function updateKeyState() {
@@ -34,10 +56,12 @@
     }
   }
   function getOpts() {
-    return { key: apikey.value.trim(), model: apimodel.value.trim() || DEFAULT_MODEL };
+    const m = curModel();
+    return { provider: m.provider, key: apikey.value.trim(), model: modelid.value.trim() || m.id };
   }
+  modelSel.addEventListener("change", () => { lsSet("wbtech_model", modelSel.value); applyModel(); });
   apikey.addEventListener("input", saveSettings);
-  apimodel.addEventListener("input", saveSettings);
+  modelid.addEventListener("input", saveSettings);
   loadSettings();
   const statusEl = document.getElementById("status");
   const bootbar = document.getElementById("bootbar");

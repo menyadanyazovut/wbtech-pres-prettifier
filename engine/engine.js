@@ -143,32 +143,56 @@ window.RestyleEngine = (function () {
 Для слайда, где есть картинки/формулы/код и мало структурированного текста → canvas.
 При сомнении → canvas. Верни ТОЛЬКО JSON-массив, без пояснений и без markdown-ограждений.`;
 
-  async function callClaude(slides, key, model, say) {
-    say && say("ИИ выбирает макеты и переписывает текст…");
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: model || "claude-sonnet-5",
-        max_tokens: 8000,
-        system: LAYOUT_SYSTEM,
-        messages: [{ role: "user", content: "Слайды исходной презентации:\n" + JSON.stringify(slides) }],
-      }),
-    });
-    if (!resp.ok) {
-      let detail = ""; try { detail = (await resp.text()).slice(0, 300); } catch (e) {}
-      throw new Error("Claude API " + resp.status + (detail ? ": " + detail : ""));
+  async function callLLM(slides, provider, model, key, say) {
+    say && say("Нейросеть выбирает макеты и переписывает текст…");
+    const userMsg = "Слайды исходной презентации:\n" + JSON.stringify(slides);
+    let text;
+    if (provider === "anthropic") {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: model || "claude-sonnet-5", max_tokens: 8000, system: LAYOUT_SYSTEM,
+          messages: [{ role: "user", content: userMsg }],
+        }),
+      });
+      if (!resp.ok) throw new Error("Anthropic " + resp.status + ": " + (await safeText(resp)));
+      const data = await resp.json();
+      text = (data.content || []).map((c) => c.text || "").join("");
+    } else {
+      // OpenRouter (OpenAI-совместимый) — через него идут DeepSeek/Qwen из браузера
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": "Bearer " + key,
+          "HTTP-Referer": location.origin,
+          "X-Title": "WB Prettifier",
+        },
+        body: JSON.stringify({
+          model: model, max_tokens: 8000,
+          messages: [
+            { role: "system", content: LAYOUT_SYSTEM },
+            { role: "user", content: userMsg },
+          ],
+        }),
+      });
+      if (!resp.ok) throw new Error("OpenRouter " + resp.status + ": " + (await safeText(resp)));
+      const data = await resp.json();
+      if (data.error) throw new Error("OpenRouter: " + (data.error.message || JSON.stringify(data.error)));
+      text = (((data.choices || [])[0] || {}).message || {}).content || "";
     }
-    const data = await resp.json();
-    let text = (data.content || []).map((c) => c.text || "").join("").trim();
-    const m = text.match(/\[[\s\S]*\]/);        // на случай обрамления текстом/фенсами
+    text = (text || "").trim();
+    const m = text.match(/\[[\s\S]*\]/);        // вырезаем JSON из возможного обрамления
+    if (!m && !text) throw new Error("пустой ответ модели");
     return JSON.parse(m ? m[0] : text);
   }
+  async function safeText(resp) { try { return (await resp.text()).slice(0, 300); } catch (e) { return ""; } }
 
   async function convert(arrayBuffer, opts) {
     if (!pyodide) throw new Error("движок не инициализирован");
@@ -182,7 +206,7 @@ window.RestyleEngine = (function () {
         "import engine, json; json.dumps(engine.extract_for_llm(open('input.pptx','rb').read()), ensure_ascii=False)"
       );
       const slides = JSON.parse(slidesJson);
-      const plan = await callClaude(slides, opts.key, opts.model, say);
+      const plan = await callLLM(slides, opts.provider || "anthropic", opts.model, opts.key, say);
       planJson = JSON.stringify(plan);
     }
     if (say) say("Собираю презентацию по дизайн-коду…");
