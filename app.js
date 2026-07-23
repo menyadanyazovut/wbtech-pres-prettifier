@@ -157,11 +157,33 @@
       n.append(num, btn);
       tr.insertCell().textContent = r.action;
       tr.insertCell().textContent = r.comment || "";
+      // превью до/после под комментарием (если движок их приложил)
+      if (r.before || r.after) {
+        const trb = t.insertRow();
+        trb.className = "thumbs";
+        const td = trb.insertCell(); td.colSpan = 3;
+        const ba = document.createElement("div"); ba.className = "ba";
+        if (r.before) ba.appendChild(thumb(r.before, "исходный слайд"));
+        const arr = document.createElement("span"); arr.className = "arrow"; arr.textContent = "→";
+        ba.appendChild(arr);
+        if (r.after) ba.appendChild(thumb(r.after, "по дизайн-коду"));
+        td.appendChild(ba);
+        tr._thumbs = trb;      // удаляем/возвращаем вместе с комментарием
+      }
       const fire = () => resolveRow(tr, refreshCount);
       btn.addEventListener("click", fire);
       btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire(); } });
     }
     return t;
+  }
+
+  function thumb(svgString, caption) {
+    const fig = document.createElement("figure"); fig.className = "thumb";
+    const box = document.createElement("div"); box.className = "thumb-svg";
+    box.innerHTML = svgString;                       // наш собственный SVG, безопасно
+    const cap = document.createElement("figcaption"); cap.textContent = caption;
+    fig.append(box, cap);
+    return fig;
   }
 
   // Держим раскрытым только самый верхний блок замечаний в списке результатов.
@@ -170,15 +192,18 @@
     blocks.forEach((d, i) => { d.open = (i === 0); });
   }
 
-  // Удалить строку замечания с возможностью отмены через snackbar.
+  // Удалить строку замечания (и её превью) с возможностью отмены через snackbar.
   function resolveRow(tr, refreshCount) {
     const table = tr.parentNode;
-    const anchor = tr.nextSibling;                 // куда вернуть при отмене
+    const thumbs = tr._thumbs || null;
+    const anchor = (thumbs || tr).nextSibling;     // куда вернуть при отмене
+    if (thumbs) table.removeChild(thumbs);
     table.removeChild(tr);
     if (refreshCount) refreshCount();
     showSnack("Комментарий удалён", () => {
-      if (anchor && anchor.parentNode === table) table.insertBefore(tr, anchor);
-      else table.appendChild(tr);
+      const ref = (anchor && anchor.parentNode === table) ? anchor : null;
+      table.insertBefore(tr, ref);
+      if (thumbs) table.insertBefore(thumbs, ref);
       if (refreshCount) refreshCount();
     });
   }

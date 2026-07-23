@@ -65,6 +65,15 @@
   .resolve:hover { color:#2CA66C; }
   .resolve svg { width:16px; height:16px; display:block; }
 
+  /* превью до/после под комментарием */
+  tr.thumbs td { padding:4px 0 16px; border-bottom:1px solid #eef2fa; }
+  .ba { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .ba .arrow { color:var(--pink); font-size:22px; font-weight:700; line-height:1; }
+  .thumb { margin:0; width:min(260px,42vw); }
+  .thumb-svg { border:1px solid #dde5f2; border-radius:6px; overflow:hidden; background:#fff; line-height:0; }
+  .thumb-svg svg { width:100%; height:auto; display:block; }
+  .thumb figcaption { margin-top:5px; font-size:11px; color:var(--gray); }
+
   /* snackbar-стек: правый нижний угол, не более трёх */
   #snacks { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column;
             gap:10px; z-index:50; }

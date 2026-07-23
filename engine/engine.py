@@ -14,7 +14,7 @@
 макетов, vision для скриншотов кода, генерация «Плана урока») подключаются
 здесь, не затрагивая фронтенд.
 """
-import io, re, copy, zipfile, posixpath
+import io, re, copy, zipfile, posixpath, base64
 
 NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main",
       "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -688,6 +688,108 @@ def _merge_table_styles(tpl, src):
     for s in sroot.findall(f"{{{A}}}tblStyle"):
         if s.get("styleId") not in have: droot.append(copy.deepcopy(s))
 
+# ---------- приближённые превью слайдов (SVG) ----------
+# Настоящего растеризатора PPTX в браузере нет, поэтому превью — эскиз из геометрии:
+# встроенные картинки переносятся точь-в-точь, текст — с переносом по словам и обрезкой.
+def _svg_esc(s):
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+def _thumb_datauri(pkg, media_path, cache):
+    if cache is not None and media_path in cache:
+        return cache[media_path]
+    uri = None
+    try:
+        im = Image.open(io.BytesIO(pkg.files[media_path])).convert("RGB")
+        im.thumbnail((320, 320))
+        buf = io.BytesIO(); im.save(buf, "JPEG", quality=58)
+        uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        uri = None
+    if cache is not None:
+        cache[media_path] = uri
+    return uri
+
+def slide_svg(pkg, slide_path, bg="F2FAFF", thumb_w=360, media_cache=None):
+    """Вернуть SVG-эскиз слайда (строка) шириной thumb_w px, viewBox в EMU."""
+    if slide_path not in pkg.files:
+        return None
+    # ВАЖНО: читаем из живого дерева (движок правит pkg.trees, а pkg.files
+    # обновляются только в to_bytes()) — иначе увидим незаполненный донор.
+    root = pkg.tree(slide_path).getroot()
+    d = posixpath.dirname(slide_path)
+    rp = rels_path(slide_path)
+    rels = {}
+    if rp in pkg.files:
+        for r in pkg.tree(rp).getroot():
+            if r.get("TargetMode") != "External":
+                rels[r.get("Id")] = posixpath.normpath(posixpath.join(d, r.get("Target")))
+    hh = int(H * thumb_w / W)
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{thumb_w}" height="{hh}" '
+           f'viewBox="0 0 {W} {H}"><rect width="{W}" height="{H}" fill="#{bg}"/>']
+    spTree = root.find(f"{q('p:cSld')}/{q('p:spTree')}")
+    if spTree is None:
+        out.append("</svg>"); return "".join(out)
+    for el in spTree:
+        tag = etree.QName(el).localname
+        if tag == "pic":
+            blip = el.find(f".//{q('a:blip')}")
+            rid = blip.get(q("r:embed")) if blip is not None else None
+            b = _box(el)
+            if rid and rid in rels and b:
+                uri = _thumb_datauri(pkg, rels[rid], media_cache)
+                if uri:
+                    out.append(f'<image x="{b[0]}" y="{b[1]}" width="{b[2]}" height="{b[3]}" '
+                               f'href="{uri}" preserveAspectRatio="none"/>')
+        elif tag == "graphicFrame":
+            b = _box(el)
+            if b:
+                out.append(f'<rect x="{b[0]}" y="{b[1]}" width="{b[2]}" height="{b[3]}" '
+                           f'fill="#ffffff" stroke="#c9d4e8" stroke-width="6000"/>')
+        elif tag == "sp":
+            b = _box(el)
+            txt_paras = ["".join(t.text or "" for t in p.iter(q("a:t")))
+                         for p in el.findall(f"{q('p:txBody')}/{q('a:p')}")]
+            txt_paras = [p for p in txt_paras if p.strip()]
+            if not b or not txt_paras:
+                continue
+            szs = [int(r.get("sz")) for r in el.iter(q("a:rPr")) if r.get("sz")]
+            fs = (max(szs) if szs else 1400) * 127          # EMU
+            clr_el = el.find(f".//{q('a:rPr')}/{q('a:solidFill')}/{q('a:srgbClr')}")
+            color = "#" + (clr_el.get("val") if clr_el is not None else "222222")
+            bold = el.find(f".//{q('a:rPr')}[@b='1']") is not None
+            x, y, cx, cy = b
+            pad = 40000
+            per_line = max(4, int((cx - 2*pad) / (fs * 0.58)))
+            line_h = int(fs * 1.32)
+            max_lines = max(1, int((cy) / line_h))
+            lines = []
+            for para in txt_paras:
+                words = para.split()
+                cur = ""
+                for w in words:
+                    if len(cur) + len(w) + 1 <= per_line:
+                        cur = (cur + " " + w).strip()
+                    else:
+                        if cur: lines.append(cur)
+                        cur = w
+                        if len(w) > per_line:            # длинное слово — режем
+                            while len(cur) > per_line:
+                                lines.append(cur[:per_line]); cur = cur[per_line:]
+                if cur: lines.append(cur)
+                if len(lines) >= max_lines: break
+            lines = lines[:max_lines]
+            if lines:
+                tx = x + pad; ty = y + fs
+                weight = ' font-weight="700"' if bold else ""
+                spans = "".join(
+                    f'<tspan x="{tx}" dy="{0 if i==0 else line_h}">{_svg_esc(ln)}</tspan>'
+                    for i, ln in enumerate(lines))
+                out.append(f'<text x="{tx}" y="{ty}" font-family="monospace" '
+                           f'font-size="{fs}" fill="{color}"{weight}>{spans}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
 def convert(template_bytes, src_bytes, subtitle="WB Техношкола"):
     tpl = Package.from_bytes(template_bytes)
     src = Package.from_bytes(src_bytes)
@@ -781,6 +883,26 @@ def convert(template_bytes, src_bytes, subtitle="WB Техношкола"):
                 remarks.append({"slide": out_no, "action": "сложная композиция",
                                 "comment": "рестайл рамки, содержимое как есть — проверьте"})
     _merge_table_styles(tpl, src)
+
+    # Превью до/после — только для слайдов с замечаниями (быстро, малый payload).
+    # before — исходный слайд преподавателя, after — наш пересобранный.
+    slidemap = {out_no: (inf, dst) for out_no, (dst, rid, kind, inf) in enumerate(made, 1)}
+    media_cache = {}
+    thumb_cache = {}    # out_no -> (before, after)
+    for r in remarks:
+        n = r.get("slide")
+        if n not in slidemap:
+            continue
+        if n not in thumb_cache:
+            inf, dst = slidemap[n]
+            before = slide_svg(src, inf["path"], bg="FFFFFF", media_cache=media_cache) if inf else None
+            after = slide_svg(tpl, dst, bg="F2FAFF", media_cache=media_cache)
+            thumb_cache[n] = (before, after)
+        before, after = thumb_cache[n]
+        if before:
+            r["before"] = before
+        if after:
+            r["after"] = after
     return tpl.to_bytes(), remarks
 
 if __name__ == "__main__":
